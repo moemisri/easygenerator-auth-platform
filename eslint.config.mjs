@@ -10,12 +10,23 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.{js,mjs,cjs,ts,tsx}'],
+    files: [
+      'apps/api/**/*.{js,mjs,cjs,ts,tsx}',
+      'apps/web/{vite,vitest}.config.ts',
+      'packages/**/*.{js,mjs,cjs,ts,tsx}',
+      'eslint.config.mjs',
+    ],
     languageOptions: {
-      globals: {
-        ...globals.browser,
-        ...globals.node,
-      },
+      globals: globals.node,
+    },
+  },
+  {
+    files: [
+      'apps/web/src/**/*.{js,mjs,cjs,ts,tsx}',
+      'apps/web/tests/**/*.{js,mjs,cjs,ts,tsx}',
+    ],
+    languageOptions: {
+      globals: globals.browser,
     },
   },
   eslintConfigPrettier,

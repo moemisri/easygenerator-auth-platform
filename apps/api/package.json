@@ -21,7 +21,7 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",
     "@nestjs/testing": "^11.1.29",
-    "@types/node": "^26.2.0",
+    "@types/node": "^24.13.3",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3",
     "vite-tsconfig-paths": "^6.1.1",
