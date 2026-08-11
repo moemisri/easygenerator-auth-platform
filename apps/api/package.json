@@ -7,7 +7,7 @@
     "build": "nest build",
     "dev": "tsx watch src/main.ts",
     "lint": "eslint src test",
-    "test": "vitest run --exclude test/integration/** && node --test ../../scripts/run-integration-tests.spec.mjs",
+    "test": "node ../../scripts/run-api-tests.mjs",
     "test:integration": "node ../../scripts/run-integration-tests.mjs",
     "test:integration:run": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit"
