@@ -10,16 +10,16 @@ export type UserDocument = HydratedDocument<User>;
   versionKey: 'version',
 })
 export class User {
-  @Prop({ required: true, trim: true })
+  @Prop({ required: true, trim: true, type: String })
   email!: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: String })
   emailKey!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: true, trim: true, type: String })
   name!: string;
 
-  @Prop({ required: true, select: false })
+  @Prop({ required: true, select: false, type: String })
   passwordHash!: string;
 
   @Prop({

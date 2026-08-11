@@ -6,6 +6,7 @@ export const defaults = {
   SESSION_TTL_SECONDS: 604800,
   COOKIE_SECURE: false,
   ASSISTANT_ENABLED: false,
+  SWAGGER_ENABLED: false,
 } as const;
 
 const developmentDefaults = {
@@ -94,6 +95,7 @@ const rawConfigSchema = z
     SESSION_TTL_SECONDS: integerFromEnvironment(60, 31_536_000).optional(),
     COOKIE_SECURE: booleanFromEnvironment.optional(),
     ASSISTANT_ENABLED: booleanFromEnvironment.optional(),
+    SWAGGER_ENABLED: booleanFromEnvironment.optional(),
     GEMINI_API_KEY: z.string().trim().min(1).optional(),
     GEMINI_MODEL: z.string().trim().min(1).optional(),
     ASSISTANT_CORPUS_PATH: z.literal('docs/assistant-public').optional(),
@@ -217,6 +219,7 @@ const rawConfigSchema = z
       COOKIE_SECURE:
         config.COOKIE_SECURE ?? (isProduction ? true : defaults.COOKIE_SECURE),
       ASSISTANT_ENABLED: config.ASSISTANT_ENABLED ?? defaults.ASSISTANT_ENABLED,
+      SWAGGER_ENABLED: config.SWAGGER_ENABLED ?? defaults.SWAGGER_ENABLED,
       GEMINI_API_KEY: config.GEMINI_API_KEY,
       GEMINI_MODEL: config.GEMINI_MODEL,
       ASSISTANT_CORPUS_PATH:

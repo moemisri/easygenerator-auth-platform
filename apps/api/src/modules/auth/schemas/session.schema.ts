@@ -9,10 +9,10 @@ export class Session {
   @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'User' })
   userId!: Types.ObjectId;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: String })
   tokenDigest!: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: Date })
   expiresAt!: Date;
 
   @Prop({ default: null, type: Date })

@@ -46,19 +46,24 @@ class BoundaryModule {}
 describe('configureApplication', () => {
   let app: NestExpressApplication;
 
-  beforeEach(async () => {
+  async function createApp(swaggerEnabled = false) {
     const module = await Test.createTestingModule({
       imports: [BoundaryModule],
     }).compile();
-    app = module.createNestApplication<NestExpressApplication>({
+    const createdApp = module.createNestApplication<NestExpressApplication>({
       bodyParser: false,
     });
     configureApplication(
-      app,
-      { TRUST_PROXY_HOPS: 1 },
+      createdApp,
+      { TRUST_PROXY_HOPS: 1, SWAGGER_ENABLED: swaggerEnabled },
       new ProblemDetailsFilter({ error: () => undefined }),
     );
-    await app.init();
+    await createdApp.init();
+    return createdApp;
+  }
+
+  beforeEach(async () => {
+    app = await createApp();
   });
 
   afterEach(async () => {
@@ -106,5 +111,82 @@ describe('configureApplication', () => {
       code: 'HTTP_413',
     });
     expect(response.body).not.toHaveProperty('stack');
+  });
+
+  it('does not mount OpenAPI routes when documentation is disabled', async () => {
+    for (const path of [
+      '/api/docs',
+      '/API/DOCS',
+      '/api/docs/',
+      '/api/docs/assets/example.js',
+      '/api/docs-json',
+    ]) {
+      const response = await request(app.getHttpServer()).get(path).expect(404);
+      expect(response.headers['content-security-policy']).not.toContain(
+        "'unsafe-inline'",
+      );
+    }
+  });
+
+  it('mounts enabled documentation without weakening CSP outside the exact UI subtree', async () => {
+    await app.close();
+    app = await createApp(true);
+
+    const docs = await request(app.getHttpServer())
+      .get('/api/docs')
+      .expect(200);
+    const uppercaseDocs = await request(app.getHttpServer())
+      .get('/API/DOCS')
+      .expect(200);
+    const trailingDocs = await request(app.getHttpServer())
+      .get('/api/docs/')
+      .expect(200);
+    const docsAsset = await request(app.getHttpServer())
+      .get('/api/docs/swagger-ui.css')
+      .expect(200);
+    const document = await request(app.getHttpServer())
+      .get('/api/docs-json')
+      .expect(200);
+    const uppercaseDocument = await request(app.getHttpServer())
+      .get('/API/DOCS-JSON')
+      .expect(200);
+    const yamlDocument = await request(app.getHttpServer())
+      .get('/api/docs-yaml')
+      .expect(404);
+    const api = await request(app.getHttpServer())
+      .get('/api/v1/boundary')
+      .expect(200);
+    const health = await request(app.getHttpServer())
+      .get('/health/live')
+      .expect(200);
+    const lookalike = await request(app.getHttpServer())
+      .get('/api/docs-json/anything')
+      .expect(404);
+    const prefixLookalike = await request(app.getHttpServer())
+      .get('/api/docsish')
+      .expect(404);
+
+    for (const response of [docs, uppercaseDocs, trailingDocs, docsAsset]) {
+      expect(response.headers['content-security-policy']).toContain(
+        "script-src 'self' 'unsafe-inline'",
+      );
+      expect(response.headers['content-security-policy']).toContain(
+        "style-src 'self' 'unsafe-inline'",
+      );
+    }
+
+    for (const response of [
+      document,
+      uppercaseDocument,
+      yamlDocument,
+      api,
+      health,
+      lookalike,
+      prefixLookalike,
+    ]) {
+      expect(response.headers['content-security-policy']).not.toContain(
+        "'unsafe-inline'",
+      );
+    }
   });
 });

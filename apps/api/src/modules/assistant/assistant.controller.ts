@@ -12,6 +12,7 @@ import {
   assistantChatRequestSchema,
   type AssistantChatRequest,
 } from '@easygenerator/contracts';
+import { ApiTags } from '@nestjs/swagger';
 
 import { CsrfGuard } from '../auth/csrf.guard';
 import { CurrentPrincipal } from '../auth/current-principal.decorator';
@@ -25,6 +26,7 @@ import type {
   AssistantRequestEvents,
   AssistantStreamResponse,
 } from './assistant.types';
+import { ApiAssistantChat } from '../../platform/http/openapi';
 
 class AssistantChatBody implements AssistantChatRequest {
   static readonly schema = assistantChatRequestSchema;
@@ -35,10 +37,12 @@ class AssistantChatBody implements AssistantChatRequest {
 type AssistantHttpRequest = AuthenticatedHttpRequest & AssistantRequestEvents;
 
 @Controller('assistant')
+@ApiTags('Assistant')
 export class AssistantController {
   constructor(private readonly assistant: AssistantService) {}
 
   @Post('chat')
+  @ApiAssistantChat()
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionGuard, CsrfGuard)
   chat(

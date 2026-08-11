@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiTags } from '@nestjs/swagger';
 import {
   signinSchema,
   signupSchema,
@@ -27,6 +28,12 @@ import { CurrentPrincipal } from './current-principal.decorator';
 import type { AuthenticatedHttpRequest } from './session.guard';
 import { SessionGuard } from './session.guard';
 import type { AuthenticatedPrincipal } from './session.service';
+import {
+  ApiAuthLogout,
+  ApiAuthSession,
+  ApiAuthSignin,
+  ApiAuthSignup,
+} from '../../platform/http/openapi';
 
 class SignupBody implements SignupInput {
   static readonly schema = signupSchema;
@@ -42,6 +49,7 @@ class SigninBody implements SigninInput {
 }
 
 @Controller('auth')
+@ApiTags('Authentication')
 export class AuthController {
   private readonly assistantEnabled: boolean;
 
@@ -55,6 +63,7 @@ export class AuthController {
   }
 
   @Post('signup')
+  @ApiAuthSignup()
   @Header('Cache-Control', 'no-store')
   async signUp(
     @Body() body: SignupBody,
@@ -70,6 +79,7 @@ export class AuthController {
   }
 
   @Post('signin')
+  @ApiAuthSignin()
   @HttpCode(HttpStatus.OK)
   @Header('Cache-Control', 'no-store')
   async signIn(
@@ -86,6 +96,7 @@ export class AuthController {
   }
 
   @Get('session')
+  @ApiAuthSession()
   @UseGuards(SessionGuard)
   @Header('Cache-Control', 'no-store')
   session(
@@ -100,6 +111,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @ApiAuthLogout()
   @UseGuards(CsrfGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Header('Cache-Control', 'no-store')

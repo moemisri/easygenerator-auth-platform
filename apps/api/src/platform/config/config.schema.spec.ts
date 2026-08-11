@@ -250,6 +250,23 @@ describe('configSchema', () => {
       SESSION_TTL_SECONDS: 604800,
       COOKIE_SECURE: false,
       ASSISTANT_ENABLED: false,
+      SWAGGER_ENABLED: false,
     });
+  });
+
+  it.each([
+    ['true', true],
+    ['false', false],
+  ] as const)('parses SWAGGER_ENABLED=%s', (value, expected) => {
+    expect(
+      configSchema.parse({ NODE_ENV: 'test', SWAGGER_ENABLED: value })
+        .SWAGGER_ENABLED,
+    ).toBe(expected);
+  });
+
+  it('rejects a non-boolean SWAGGER_ENABLED value', () => {
+    expect(() =>
+      configSchema.parse({ NODE_ENV: 'test', SWAGGER_ENABLED: 'yes' }),
+    ).toThrow();
   });
 });

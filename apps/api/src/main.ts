@@ -11,12 +11,48 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import type { AppConfig } from './platform/config/config.schema';
 import { ProblemDetailsFilter } from './platform/errors/problem-details.filter';
+import { configureOpenApi } from './platform/http/openapi';
 import { RequestIdMiddleware } from './platform/http/request-id.middleware';
 import { ZodValidationPipe } from './platform/http/zod-validation.pipe';
 
+type HelmetMiddleware = ReturnType<typeof helmet>;
+type HelmetRequest = Parameters<HelmetMiddleware>[0] & { path: string };
+type HelmetResponse = Parameters<HelmetMiddleware>[1];
+type HelmetNext = Parameters<HelmetMiddleware>[2];
+
+const strictContentSecurityPolicy = {
+  directives: {
+    defaultSrc: ["'self'"],
+    baseUri: ["'self'"],
+    objectSrc: ["'none'"],
+    frameAncestors: ["'none'"],
+    scriptSrc: ["'self'"],
+    scriptSrcAttr: ["'none'"],
+    styleSrc: ["'self'"],
+    styleSrcAttr: ["'none'"],
+  },
+} as const;
+
+const documentationContentSecurityPolicy = {
+  directives: {
+    ...strictContentSecurityPolicy.directives,
+    scriptSrc: ["'self'", "'unsafe-inline'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    styleSrcAttr: ["'unsafe-inline'"],
+  },
+} as const;
+
+export function isOpenApiUiPath(path: string): boolean {
+  const normalizedPath = path.toLowerCase();
+  return (
+    normalizedPath === '/api/docs' || normalizedPath.startsWith('/api/docs/')
+  );
+}
+
 export function configureApplication(
   app: NestExpressApplication,
-  config: Pick<AppConfig, 'TRUST_PROXY_HOPS'>,
+  config: Pick<AppConfig, 'TRUST_PROXY_HOPS'> &
+    Partial<Pick<AppConfig, 'SWAGGER_ENABLED'>>,
   problemDetailsFilter: ProblemDetailsFilter,
 ): void {
   app.set('trust proxy', config.TRUST_PROXY_HOPS);
@@ -24,17 +60,17 @@ export function configureApplication(
   app.use(requestIds.use.bind(requestIds));
   app.use(cookieParser());
   app.useBodyParser('json', { limit: '32kb' });
+  const strictHelmet = helmet({
+    contentSecurityPolicy: strictContentSecurityPolicy,
+  });
+  const documentationHelmet = helmet({
+    contentSecurityPolicy: documentationContentSecurityPolicy,
+  });
   app.use(
-    helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          baseUri: ["'self'"],
-          objectSrc: ["'none'"],
-          frameAncestors: ["'none'"],
-        },
-      },
-    }),
+    (request: HelmetRequest, response: HelmetResponse, next: HelmetNext) =>
+      (config.SWAGGER_ENABLED === true && isOpenApiUiPath(request.path)
+        ? documentationHelmet
+        : strictHelmet)(request, response, next),
   );
   app.useGlobalPipes(new ZodValidationPipe());
   app.useGlobalFilters(problemDetailsFilter);
@@ -44,6 +80,7 @@ export function configureApplication(
       { path: 'health/ready', method: RequestMethod.GET },
     ],
   });
+  configureOpenApi(app, config.SWAGGER_ENABLED ?? false);
   app.enableShutdownHooks();
 }
 
@@ -58,12 +95,13 @@ async function bootstrap() {
     app,
     {
       TRUST_PROXY_HOPS: config.get('TRUST_PROXY_HOPS', { infer: true }),
+      SWAGGER_ENABLED: config.get('SWAGGER_ENABLED', { infer: true }),
     },
     app.get(ProblemDetailsFilter),
   );
   await app.listen(config.get('PORT', { infer: true }));
 }
 
-if (process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test') {
+if (process.env.VITEST !== 'true') {
   void bootstrap();
 }

@@ -19,6 +19,7 @@ import {
   type UpdateUserInput,
   type UserPage,
 } from '@easygenerator/contracts';
+import { ApiTags } from '@nestjs/swagger';
 
 import { CurrentPrincipal } from '../auth/current-principal.decorator';
 import { CsrfGuard } from '../auth/csrf.guard';
@@ -28,6 +29,10 @@ import type { AuthenticatedPrincipal } from '../auth/session.service';
 import { AdminService } from './admin.service';
 import { RequireCapability } from './capability.decorator';
 import { CapabilityGuard } from './capability.guard';
+import {
+  ApiAdminListUsers,
+  ApiAdminUpdateUser,
+} from '../../platform/http/openapi';
 
 class AdminUsersQueryDto implements AdminUsersQuery {
   static readonly schema = adminUsersQuerySchema;
@@ -51,10 +56,12 @@ class UpdateAdminUserBody implements UpdateUserInput {
 }
 
 @Controller('admin/users')
+@ApiTags('Administration')
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
   @Get()
+  @ApiAdminListUsers()
   @UseGuards(SessionGuard, CapabilityGuard)
   @RequireCapability('READ_USERS')
   @Header('Cache-Control', 'no-store')
@@ -63,6 +70,7 @@ export class AdminController {
   }
 
   @Patch(':id')
+  @ApiAdminUpdateUser()
   @UseGuards(SessionGuard, CsrfGuard, CapabilityGuard)
   @RequireCapability('MANAGE_BASIC_USERS')
   @Header('Cache-Control', 'no-store')

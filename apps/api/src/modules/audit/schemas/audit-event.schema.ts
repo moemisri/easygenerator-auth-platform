@@ -28,7 +28,7 @@ export class AuditEvent {
   @Prop({ type: String })
   targetId?: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, type: String })
   requestId!: string;
 
   @Prop({ type: SchemaTypes.Mixed })
