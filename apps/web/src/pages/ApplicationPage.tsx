@@ -1,6 +1,7 @@
 import { Button } from '../components/Button';
 import { ProblemAlert } from '../components/ProblemAlert';
 import { useAuth } from '../features/auth/AuthProvider';
+import { canViewAdministration } from '../features/auth/PermissionRoute';
 import { Link } from 'react-router-dom';
 export function ApplicationPage() {
   const { user, logout, logoutError } = useAuth();
@@ -10,7 +11,9 @@ export function ApplicationPage() {
         <p className="product-mark">EASYGENERATOR</p>
         <nav aria-label="Application navigation">
           <Link to="/app">Overview</Link>
-          {user?.role === 'ADMIN' && <Link to="/app">Administration</Link>}
+          {user && canViewAdministration(user.role) && (
+            <Link to="/admin">Administration</Link>
+          )}
           <Button onClick={() => void logout()}>Log out</Button>
         </nav>
       </header>

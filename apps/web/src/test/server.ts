@@ -32,4 +32,16 @@ export const server = setupServer(
     '/api/v1/auth/logout',
     () => new HttpResponse(null, { status: 204 }),
   ),
+  http.get('/api/v1/admin/users', () =>
+    HttpResponse.json({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+      summary: { total: 0, active: 0 },
+    }),
+  ),
+  http.get('/api/v1/admin/audit-events', () =>
+    HttpResponse.json({ items: [], page: 1, pageSize: 20, total: 0 }),
+  ),
 );
