@@ -122,7 +122,8 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     if (
       normalizedRequestPath.startsWith('/api/v1/auth/') ||
       normalizedRequestPath === '/api/v1/users/me' ||
-      normalizedRequestPath.startsWith('/api/v1/admin/')
+      normalizedRequestPath.startsWith('/api/v1/admin/') ||
+      normalizedRequestPath.startsWith('/api/v1/assistant/')
     ) {
       response.setHeader?.('Cache-Control', 'no-store');
     }

@@ -7,6 +7,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { AssistantModule } from './modules/assistant/assistant.module';
 import { configuration } from './platform/config/configuration';
 import { APP_ORIGIN, OriginGuard } from './platform/http/origin.guard';
 import { LoggingModule } from './platform/logging/logging.module';
@@ -24,6 +25,7 @@ import {
       validate: configuration,
     }),
     LoggingModule,
+    AssistantModule,
     AdminModule,
     AuditModule,
     AuthModule,

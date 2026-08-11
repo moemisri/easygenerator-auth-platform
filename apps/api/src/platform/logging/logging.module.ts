@@ -11,6 +11,8 @@ export const redact = [
   'req.headers["x-csrf-token"]',
   'req.body.password',
   'req.body.csrfToken',
+  'req.body.message',
+  'req.body.history',
   'res.headers.set-cookie',
   '*.MONGODB_URI',
   '*.REDIS_URL',

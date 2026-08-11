@@ -256,4 +256,30 @@ describe('mapProblem', () => {
       expect(cacheControl).toBe('no-store');
     },
   );
+
+  it('sets no-store on assistant errors before SSE starts', () => {
+    let cacheControl: string | undefined;
+    const response = {
+      setHeader: (name: string, value: string) => {
+        if (name === 'Cache-Control') cacheControl = value;
+      },
+      status: () => ({ json: () => undefined }),
+    };
+    const host = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          id: 'request-assistant',
+          originalUrl: '/API/V1/ASSISTANT/chat?unsafe=query',
+        }),
+        getResponse: () => response,
+      }),
+    } as ArgumentsHost;
+
+    new ProblemDetailsFilter({ error: () => undefined }).catch(
+      new AppError('ASSISTANT_DISABLED', 404),
+      host,
+    );
+
+    expect(cacheControl).toBe('no-store');
+  });
 });
