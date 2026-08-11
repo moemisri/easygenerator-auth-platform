@@ -46,6 +46,21 @@ describe('configSchema', () => {
     ).toThrow();
   });
 
+  it('accepts only the isolated integration database in test', () => {
+    expect(
+      configSchema.parse({
+        NODE_ENV: 'test',
+        DB_NAME: 'easygenerator_auth_test',
+      }).DB_NAME,
+    ).toBe('easygenerator_auth_test');
+    expect(() =>
+      configSchema.parse({ NODE_ENV: 'test', DB_NAME: 'easygenerator_auth' }),
+    ).toThrow();
+    expect(() =>
+      configSchema.parse({ NODE_ENV: 'test', DB_NAME: 'other_database' }),
+    ).toThrow();
+  });
+
   it.each(['CSRF_SECRET', 'IDENTITY_HASH_SECRET'] as const)(
     'rejects %s when its decoded entropy is shorter than 32 bytes',
     (field) => {
@@ -139,6 +154,15 @@ describe('configSchema', () => {
     ).toThrow();
   });
 
+  it.each(['ftp://auth.example.com', 'file:///tmp/auth'])(
+    'rejects unsupported APP_ORIGIN protocols outside production: %s',
+    (origin) => {
+      expect(() =>
+        configSchema.parse({ NODE_ENV: 'test', APP_ORIGIN: origin }),
+      ).toThrow();
+    },
+  );
+
   it('derives the application origin from a validated Render hostname', () => {
     const candidate: Record<string, unknown> = { ...productionConfig };
     delete candidate.APP_ORIGIN;
@@ -222,7 +246,7 @@ describe('configSchema', () => {
 
     expect(parsed).toMatchObject({
       PORT: 3000,
-      DB_NAME: 'easygenerator_auth',
+      DB_NAME: 'easygenerator_auth_test',
       SESSION_TTL_SECONDS: 604800,
       COOKIE_SECURE: false,
       ASSISTANT_ENABLED: false,

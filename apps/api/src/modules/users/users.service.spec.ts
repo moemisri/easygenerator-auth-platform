@@ -79,6 +79,8 @@ describe('UsersService', () => {
           email: ' User+tag@Example.com ',
           name: 'Example User',
           passwordHash: 'argon2-hash',
+          role: 'USER',
+          status: 'ACTIVE',
         },
         dbSession,
       ),
@@ -99,6 +101,8 @@ describe('UsersService', () => {
       email: ' First.Last+training@Gmail.com ',
       name: 'Example User',
       passwordHash: 'argon2-hash',
+      role: 'USER',
+      status: 'ACTIVE',
     });
 
     expect(repository.lastCreate?.emailKey).toBe(

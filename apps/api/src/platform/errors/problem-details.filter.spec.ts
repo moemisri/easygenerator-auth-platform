@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { AppError } from './app-error';
+import { RateLimitExceededError } from '../../modules/auth/auth.constants';
 import {
   mapProblem,
   ProblemDetailsFilter,
@@ -199,5 +200,28 @@ describe('mapProblem', () => {
     );
 
     expect(events).toEqual([]);
+  });
+
+  it('sets Retry-After for a blocked fixed window', () => {
+    let retryAfter: string | undefined;
+    const response = {
+      setHeader: (name: string, value: string) => {
+        if (name === 'Retry-After') retryAfter = value;
+      },
+      status: () => ({ json: () => undefined }),
+    };
+    const host = {
+      switchToHttp: () => ({
+        getRequest: () => ({ id: 'request-rate-limit', originalUrl: '/auth' }),
+        getResponse: () => response,
+      }),
+    } as ArgumentsHost;
+
+    new ProblemDetailsFilter({ error: () => undefined }).catch(
+      new RateLimitExceededError(83),
+      host,
+    );
+
+    expect(retryAfter).toBe('83');
   });
 });

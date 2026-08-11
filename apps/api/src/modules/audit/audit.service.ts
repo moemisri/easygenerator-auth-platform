@@ -1,7 +1,7 @@
 import type { Role, UserStatus } from '@easygenerator/contracts';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import type { Model } from 'mongoose';
+import type { ClientSession, Model } from 'mongoose';
 
 import { AuditEvent, type AuditAction } from './schemas/audit-event.schema';
 
@@ -112,7 +112,12 @@ export class AuditService {
     private readonly auditEvents: Model<AuditEvent>,
   ) {}
 
-  async record(input: AuditInput): Promise<void> {
-    await this.auditEvents.create(toAuditWrite(input));
+  async record(input: AuditInput, dbSession?: ClientSession): Promise<void> {
+    const write = toAuditWrite(input);
+    if (dbSession === undefined) {
+      await this.auditEvents.create(write);
+      return;
+    }
+    await this.auditEvents.create([write], { session: dbSession });
   }
 }

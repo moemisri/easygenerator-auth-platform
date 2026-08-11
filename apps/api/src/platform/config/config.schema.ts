@@ -18,6 +18,8 @@ const developmentDefaults = {
   TRUST_PROXY_HOPS: 0,
 } as const;
 
+const testDatabaseName = 'easygenerator_auth_test';
+
 const renderHostnamePattern =
   /^(?:[a-z0-9]|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9]))\.onrender\.com(?![\s\S])/;
 const strictBase64Pattern =
@@ -41,10 +43,10 @@ const uriWithProtocol = (protocols: readonly string[]) =>
     message: `URL protocol must be one of: ${protocols.join(', ')}`,
   });
 
-const httpsOrigin = z.url().transform((value, context) => {
+const applicationOrigin = z.url().transform((value, context) => {
   const url = new URL(value);
   if (
-    url.protocol !== 'https:' ||
+    !['http:', 'https:'].includes(url.protocol) ||
     url.username !== '' ||
     url.password !== '' ||
     url.pathname !== '/' ||
@@ -53,8 +55,7 @@ const httpsOrigin = z.url().transform((value, context) => {
   ) {
     context.addIssue({
       code: 'custom',
-      message:
-        'APP_ORIGIN must be an HTTPS origin without credentials or a path',
+      message: 'APP_ORIGIN must be an origin without credentials or a path',
     });
     return z.NEVER;
   }
@@ -80,7 +81,7 @@ const rawConfigSchema = z
       .default('development'),
     PORT: integerFromEnvironment(1, 65_535).optional(),
     MONGODB_URI: uriWithProtocol(['mongodb:', 'mongodb+srv:']).optional(),
-    DB_NAME: z.literal(defaults.DB_NAME).optional(),
+    DB_NAME: z.enum([defaults.DB_NAME, testDatabaseName]).optional(),
     REDIS_URL: uriWithProtocol(['redis:', 'rediss:']).optional(),
     CSRF_SECRET: base64Secret.optional(),
     IDENTITY_HASH_SECRET: base64Secret.optional(),
@@ -88,7 +89,7 @@ const rawConfigSchema = z
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .optional(),
-    APP_ORIGIN: httpsOrigin.optional(),
+    APP_ORIGIN: applicationOrigin.optional(),
     RENDER_EXTERNAL_HOSTNAME: z.string().min(1).optional(),
     SESSION_TTL_SECONDS: integerFromEnvironment(60, 31_536_000).optional(),
     COOKIE_SECURE: booleanFromEnvironment.optional(),
@@ -129,6 +130,17 @@ const rawConfigSchema = z
       }
 
       if (
+        config.APP_ORIGIN !== undefined &&
+        new URL(config.APP_ORIGIN).protocol !== 'https:'
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Production APP_ORIGIN must use HTTPS',
+          path: ['APP_ORIGIN'],
+        });
+      }
+
+      if (
         config.APP_ORIGIN === undefined &&
         (config.RENDER_EXTERNAL_HOSTNAME === undefined ||
           !renderHostnamePattern.test(config.RENDER_EXTERNAL_HOSTNAME))
@@ -140,6 +152,19 @@ const rawConfigSchema = z
           path: ['APP_ORIGIN'],
         });
       }
+    }
+
+    const expectedDatabaseName =
+      config.NODE_ENV === 'test' ? testDatabaseName : defaults.DB_NAME;
+    if (
+      config.DB_NAME !== undefined &&
+      config.DB_NAME !== expectedDatabaseName
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: `DB_NAME must be ${expectedDatabaseName} in ${config.NODE_ENV}`,
+        path: ['DB_NAME'],
+      });
     }
 
     if (
@@ -175,7 +200,9 @@ const rawConfigSchema = z
       NODE_ENV: config.NODE_ENV,
       PORT: config.PORT ?? defaults.PORT,
       MONGODB_URI: config.MONGODB_URI ?? developmentDefaults.MONGODB_URI,
-      DB_NAME: config.DB_NAME ?? defaults.DB_NAME,
+      DB_NAME:
+        config.DB_NAME ??
+        (config.NODE_ENV === 'test' ? testDatabaseName : defaults.DB_NAME),
       REDIS_URL: config.REDIS_URL ?? developmentDefaults.REDIS_URL,
       CSRF_SECRET: config.CSRF_SECRET ?? developmentDefaults.CSRF_SECRET,
       IDENTITY_HASH_SECRET:

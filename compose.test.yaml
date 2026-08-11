@@ -1,0 +1,48 @@
+services:
+  mongo-test:
+    image: mongo:8
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
+    ports:
+      - '27018:27017'
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mongo-init-test:
+    image: mongo:8
+    profiles: ['init']
+    depends_on:
+      mongo-test:
+        condition: service_healthy
+    entrypoint: ['mongosh']
+    command:
+      - mongodb://mongo-test:27017/admin
+      - --quiet
+      - --eval
+      - >-
+        try { rs.status(); } catch (error) {
+          if (error.codeName !== 'NotYetInitialized') { throw error; }
+          rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo-test:27017'}]});
+        }
+        let attempts = 0;
+        while (!db.hello().isWritablePrimary && attempts < 120) { sleep(250); attempts += 1; }
+        if (!db.hello().isWritablePrimary) { throw new Error('MongoDB replica set did not become primary'); }
+    restart: 'no'
+
+  redis-test:
+    image: redis:8-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6380:6379'
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 30

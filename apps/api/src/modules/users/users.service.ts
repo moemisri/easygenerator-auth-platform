@@ -12,6 +12,8 @@ export interface CreateUserInput {
   email: string;
   name: string;
   passwordHash: string;
+  role: 'USER';
+  status: 'ACTIVE';
 }
 
 export interface AuthenticationUser {

@@ -1,10 +1,18 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 
+import { AuditModule } from '../audit/audit.module';
 import { UsersModule } from '../users/users.module';
+import { RateLimiterService } from '../../platform/redis/rate-limiter.service';
+import { RedisModule } from '../../platform/redis/redis.module';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { DUMMY_PASSWORD_HASH, IDENTITY_HASH_SECRET } from './auth.constants';
+import { CookieService } from './cookie.service';
+import { CsrfGuard } from './csrf.guard';
 import {
   CSRF_DIGEST_COMPARATOR,
   CSRF_SECRET,
@@ -21,6 +29,7 @@ import {
   SessionService,
   systemClock,
 } from './session.service';
+import { SessionGuard } from './session.guard';
 
 const constantTimeDigestComparator: DigestComparator = (left, right) =>
   timingSafeEqual(left, right);
@@ -29,13 +38,20 @@ const constantTimeDigestComparator: DigestComparator = (left, right) =>
   imports: [
     ConfigModule,
     MongooseModule.forFeature([{ name: Session.name, schema: SessionSchema }]),
-    UsersModule,
+    AuditModule,
+    RedisModule,
+    forwardRef(() => UsersModule),
   ],
   providers: [
+    AuthService,
     PasswordService,
     SessionRepository,
     SessionService,
     CsrfService,
+    CookieService,
+    SessionGuard,
+    CsrfGuard,
+    RateLimiterService,
     { provide: AUTH_CLOCK, useValue: systemClock },
     { provide: SESSION_RANDOM_SOURCE, useValue: cryptographicRandomSource },
     {
@@ -48,7 +64,31 @@ const constantTimeDigestComparator: DigestComparator = (left, right) =>
       provide: CSRF_DIGEST_COMPARATOR,
       useValue: constantTimeDigestComparator,
     },
+    {
+      provide: IDENTITY_HASH_SECRET,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        Buffer.from(
+          config.getOrThrow<string>('IDENTITY_HASH_SECRET'),
+          'base64',
+        ),
+    },
+    {
+      provide: DUMMY_PASSWORD_HASH,
+      inject: [PasswordService],
+      useFactory: (passwords: PasswordService) =>
+        passwords.hash(randomBytes(32).toString('base64url')),
+    },
   ],
-  exports: [PasswordService, SessionService, CsrfService],
+  controllers: [AuthController],
+  exports: [
+    PasswordService,
+    SessionService,
+    CsrfService,
+    CookieService,
+    SessionGuard,
+    CsrfGuard,
+    RateLimiterService,
+  ],
 })
 export class AuthModule {}

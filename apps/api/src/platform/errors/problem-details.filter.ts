@@ -110,14 +110,31 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const request = http.getRequest<ErrorRequest>();
     const response = http.getResponse<{
+      setHeader?: (name: string, value: string) => void;
       status: (status: number) => { json: (body: ProblemDetails) => void };
     }>();
     const requestId = request.id ?? randomUUID();
-    const body = mapProblem(
-      exception,
-      requestId,
-      request.originalUrl ?? request.url,
-    );
+    const requestTarget = request.originalUrl ?? request.url ?? '';
+    const body = mapProblem(exception, requestId, requestTarget || undefined);
+
+    const requestPath = requestTarget.split('?', 1)[0] ?? '';
+    if (
+      requestPath.startsWith('/api/v1/auth/') ||
+      requestPath === '/api/v1/users/me'
+    ) {
+      response.setHeader?.('Cache-Control', 'no-store');
+    }
+
+    if (
+      typeof exception === 'object' &&
+      exception !== null &&
+      'retryAfterSeconds' in exception &&
+      typeof exception.retryAfterSeconds === 'number' &&
+      Number.isInteger(exception.retryAfterSeconds) &&
+      exception.retryAfterSeconds > 0
+    ) {
+      response.setHeader?.('Retry-After', String(exception.retryAfterSeconds));
+    }
 
     if (body.status >= 500) {
       this.logger.error(
