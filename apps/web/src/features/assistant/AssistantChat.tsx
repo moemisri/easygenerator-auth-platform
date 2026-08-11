@@ -17,10 +17,11 @@ const suggestions = [
 ];
 
 export function AssistantChat() {
-  const { csrfToken, features } = useAuth();
+  const { csrfToken, features, isLoggingOut } = useAuth();
   const assistant = useAssistantStream({
     csrfToken,
     enabled: features?.assistant === true,
+    interactionLocked: isLoggingOut,
   });
   const [question, setQuestion] = useState('');
 
@@ -149,6 +150,7 @@ export function AssistantChat() {
           <Button
             type="button"
             className="button-secondary"
+            disabled={isLoggingOut}
             onClick={() => void assistant.retry()}
           >
             Retry question
@@ -181,7 +183,9 @@ export function AssistantChat() {
         <div className="assistant-actions">
           <Button
             type="submit"
-            disabled={assistant.isActive || question.trim().length === 0}
+            disabled={
+              assistant.isActive || isLoggingOut || question.trim().length === 0
+            }
           >
             Ask assistant
           </Button>

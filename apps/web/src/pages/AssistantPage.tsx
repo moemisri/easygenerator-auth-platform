@@ -7,7 +7,7 @@ import { useAuth } from '../features/auth/AuthProvider';
 import { canViewAdministration } from '../features/auth/PermissionRoute';
 
 export function AssistantPage() {
-  const { user, logout, logoutError } = useAuth();
+  const { user, isLoggingOut, logout, logoutError } = useAuth();
 
   return (
     <main className="assistant-page">
@@ -21,8 +21,12 @@ export function AssistantPage() {
           {user && canViewAdministration(user.role) && (
             <Link to="/admin">Administration</Link>
           )}
-          <Button type="button" onClick={() => void logout()}>
-            Log out
+          <Button
+            type="button"
+            disabled={isLoggingOut}
+            onClick={() => void logout()}
+          >
+            {isLoggingOut ? 'Signing out' : 'Log out'}
           </Button>
         </nav>
       </header>

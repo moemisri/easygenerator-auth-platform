@@ -39,6 +39,23 @@ describe('SafeMarkdown', () => {
     expect(container.querySelector('[style]')).not.toBeInTheDocument();
   });
 
+  it('applies the sanitizer attribute allowlist to generated GFM elements', () => {
+    const { container } = render(
+      <SafeMarkdown>{'- [x] Sanitized task item'}</SafeMarkdown>,
+    );
+
+    expect(container.querySelector('.contains-task-list')).toBeNull();
+    expect(container.querySelector('.task-list-item')).toBeNull();
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).toBeChecked();
+    expect(checkbox.getAttributeNames().sort()).toEqual([
+      'checked',
+      'disabled',
+      'type',
+    ]);
+  });
+
   it.each(['javascript:', 'data:', 'vbscript:', '//attacker.example/'])(
     'rejects the unsafe %s link form',
     (scheme) => {

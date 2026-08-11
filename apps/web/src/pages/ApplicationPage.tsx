@@ -4,7 +4,7 @@ import { useAuth } from '../features/auth/AuthProvider';
 import { canViewAdministration } from '../features/auth/PermissionRoute';
 import { Link } from 'react-router-dom';
 export function ApplicationPage() {
-  const { user, features, logout, logoutError } = useAuth();
+  const { user, features, isLoggingOut, logout, logoutError } = useAuth();
   return (
     <main className="application-page">
       <header>
@@ -15,7 +15,9 @@ export function ApplicationPage() {
           {user && canViewAdministration(user.role) && (
             <Link to="/admin">Administration</Link>
           )}
-          <Button onClick={() => void logout()}>Log out</Button>
+          <Button disabled={isLoggingOut} onClick={() => void logout()}>
+            {isLoggingOut ? 'Signing out' : 'Log out'}
+          </Button>
         </nav>
       </header>
       <section>

@@ -40,11 +40,18 @@ function session(enabled = true): AuthSessionResponse {
 }
 
 function LogoutControl() {
-  const { logout } = useAuth();
+  const { isLoggingOut, logout, logoutError } = useAuth();
   return (
-    <button type="button" onClick={() => void logout()}>
-      Test logout
-    </button>
+    <>
+      <button
+        type="button"
+        disabled={isLoggingOut}
+        onClick={() => void logout()}
+      >
+        {isLoggingOut ? 'Signing out' : 'Test logout'}
+      </button>
+      {logoutError && <p>{logoutError}</p>}
+    </>
   );
 }
 
@@ -244,10 +251,16 @@ describe('AssistantChat', () => {
   it('aborts the active assistant request before logout begins', async () => {
     let requestSignal: AbortSignal | undefined;
     let assistantStarted = false;
+    const assistantSettled = deferred<void>();
     server.use(
       http.post('/api/v1/assistant/chat', ({ request }) => {
         assistantStarted = true;
         requestSignal = request.signal;
+        request.signal.addEventListener(
+          'abort',
+          () => assistantSettled.resolve(),
+          { once: true },
+        );
         return sseResponse(signalWiredStream(request.signal));
       }),
       http.post('/api/v1/auth/logout', () => {
@@ -263,6 +276,71 @@ describe('AssistantChat', () => {
     await user.click(screen.getByRole('button', { name: 'Test logout' }));
 
     await waitFor(() => expect(requestSignal?.aborted).toBe(true));
+    await assistantSettled.promise;
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('textbox', { name: 'Question' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('locks assistant send and retry through a failed deferred logout, then recovers', async () => {
+    let assistantRequests = 0;
+    const logoutGate = deferred<void>();
+    server.use(
+      http.post('/api/v1/assistant/chat', ({ request }) => {
+        assistantRequests += 1;
+        if (assistantRequests === 1) {
+          return sseResponse(signalWiredStream(request.signal));
+        }
+        return sseResponse(
+          sourceEvent +
+            'event: delta\ndata: {"text":"Recovered after logout failure"}\n\n' +
+            doneEvent,
+        );
+      }),
+      http.post('/api/v1/auth/logout', async () => {
+        await logoutGate.promise;
+        return HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Service unavailable',
+            status: 503,
+            code: 'SERVICE_UNAVAILABLE',
+            requestId: 'req-logout',
+          },
+          { status: 503 },
+        );
+      }),
+    );
+    renderChat({ withLogout: true });
+
+    const user = await ask('How are sessions protected?');
+    await screen.findByRole('button', { name: 'Stop generating' });
+    await user.click(screen.getByRole('button', { name: 'Test logout' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Signing out' }),
+    ).toBeDisabled();
+    const retry = await screen.findByRole('button', {
+      name: 'Retry question',
+    });
+    expect(retry).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Ask assistant' }),
+    ).toBeDisabled();
+    await user.click(retry);
+    expect(assistantRequests).toBe(1);
+
+    logoutGate.resolve();
+    expect(await screen.findByText(/unable to sign out/i)).toBeVisible();
+    await waitFor(() => expect(retry).toBeEnabled());
+    await user.click(retry);
+
+    expect(
+      await screen.findByText('Recovered after logout failure'),
+    ).toBeVisible();
+    expect(assistantRequests).toBe(2);
   });
 
   it('aborts an active request on unmount without updating torn-down state', async () => {
@@ -339,6 +417,55 @@ describe('AssistantChat', () => {
     expect(
       screen.getByRole('button', { name: 'Retry question' }),
     ).toBeVisible();
+  });
+
+  it('does not expose retry while an invalid response body is still cancelling', async () => {
+    const cancellation = deferred<void>();
+    let cancellationStarted = false;
+    let requests = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      requests += 1;
+      if (requests > 1) {
+        return Promise.resolve(
+          new Response(
+            sourceEvent +
+              'event: delta\ndata: {"text":"Retry after disposal"}\n\n' +
+              doneEvent,
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            async cancel() {
+              cancellationStarted = true;
+              await cancellation.promise;
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-streaming' } },
+        ),
+      );
+    });
+    renderChat();
+
+    const user = await ask('How are sessions protected?');
+    await waitFor(() => expect(cancellationStarted).toBe(true));
+    expect(
+      screen.queryByRole('button', { name: 'Retry question' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Ask assistant' }),
+    ).toBeDisabled();
+
+    cancellation.resolve();
+    const retry = await screen.findByRole('button', {
+      name: 'Retry question',
+    });
+    await user.click(retry);
+
+    expect(await screen.findByText('Retry after disposal')).toBeVisible();
+    expect(requests).toBe(2);
   });
 
   it('aborts after the 30-second client deadline and offers a safe retry', async () => {
@@ -440,6 +567,73 @@ describe('AssistantChat', () => {
         { role: 'assistant', content: 'Answer 4' },
       ],
     });
+  });
+
+  it('displays a long answer fully and bounds future history without splitting a surrogate pair', async () => {
+    const longAnswer = `${'a'.repeat(999)}😀tail`;
+    const requests: Array<{
+      message: string;
+      history: Array<{ role: string; content: string }>;
+    }> = [];
+    server.use(
+      http.post('/api/v1/assistant/chat', async ({ request }) => {
+        requests.push((await request.json()) as (typeof requests)[number]);
+        if (requests.length === 1) {
+          return sseResponse(
+            sourceEvent +
+              `event: delta\ndata: ${JSON.stringify({ text: longAnswer })}\n\n` +
+              doneEvent,
+          );
+        }
+        return sseResponse(
+          sourceEvent +
+            'event: delta\ndata: {"text":"Follow-up answer"}\n\n' +
+            doneEvent,
+        );
+      }),
+    );
+    renderChat();
+
+    await ask('First question');
+    expect(await screen.findByText(longAnswer)).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Answer complete'),
+    );
+
+    await ask('Follow-up question');
+    expect(await screen.findByText('Follow-up answer')).toBeVisible();
+    expect(requests[1]).toEqual({
+      message: 'Follow-up question',
+      history: [
+        { role: 'user', content: 'First question' },
+        { role: 'assistant', content: 'a'.repeat(999) },
+      ],
+    });
+    expect(requests[1]?.history[1]?.content.length).toBeLessThanOrEqual(1_000);
+  });
+
+  it('fails safely instead of completing an excessively large aggregate answer', async () => {
+    const oversizedAnswer = Array.from(
+      { length: 9 },
+      () =>
+        `event: delta\ndata: ${JSON.stringify({ text: 'x'.repeat(8_192) })}\n\n`,
+    ).join('');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(sourceEvent + oversizedAnswer + doneEvent, {
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    );
+    renderChat();
+
+    await ask('How are sessions protected?');
+
+    expect(
+      await screen.findByText(/request could not be completed/i),
+    ).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Assistant request failed',
+    );
+    expect(screen.getByRole('status')).not.toHaveTextContent('Answer complete');
   });
 
   it('keeps a source-only completed turn visible without sending fabricated history', async () => {

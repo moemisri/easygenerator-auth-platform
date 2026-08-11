@@ -25,6 +25,7 @@ type AuthContextValue = {
   user: AuthSessionResponse['user'] | null;
   csrfToken: string | null;
   features: AuthSessionResponse['features'] | null;
+  isLoggingOut: boolean;
   restorationError: string | null;
   logoutError: string | null;
   retrySession: () => void;
@@ -60,8 +61,10 @@ export function AuthProvider({
   const [session, setSession] = useState<AuthSessionResponse | null>(null);
   const [restorationError, setRestorationError] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [restorationAttempt, setRestorationAttempt] = useState(0);
   const restorationGeneration = useRef(0);
+  const logoutInFlight = useRef(false);
   useEffect(() => {
     let active = true;
     const generation = restorationGeneration.current;
@@ -108,19 +111,28 @@ export function AuthProvider({
     [accept],
   );
   const logout = useCallback(async () => {
+    if (logoutInFlight.current) return;
+    logoutInFlight.current = true;
+    setIsLoggingOut(true);
+    setLogoutError(null);
     abortAssistantStreams();
     try {
-      if (session?.csrfToken) await authApi.logout(session.csrfToken);
-    } catch (error) {
-      if (!(error instanceof ApiProblem) || error.status !== 401) {
-        setLogoutError('Unable to sign out. Please retry.');
-        return;
+      try {
+        if (session?.csrfToken) await authApi.logout(session.csrfToken);
+      } catch (error) {
+        if (!(error instanceof ApiProblem) || error.status !== 401) {
+          setLogoutError('Unable to sign out. Please retry.');
+          return;
+        }
       }
+      setSession(null);
+      setStatus('anonymous');
+      setLogoutError(null);
+      await queryClient.invalidateQueries();
+    } finally {
+      logoutInFlight.current = false;
+      setIsLoggingOut(false);
     }
-    setSession(null);
-    setStatus('anonymous');
-    setLogoutError(null);
-    await queryClient.invalidateQueries();
   }, [queryClient, session]);
   const value = useMemo(
     () => ({
@@ -128,6 +140,7 @@ export function AuthProvider({
       user: session?.user ?? null,
       csrfToken: session?.csrfToken ?? null,
       features: session?.features ?? null,
+      isLoggingOut,
       restorationError,
       logoutError,
       retrySession,
@@ -142,6 +155,7 @@ export function AuthProvider({
       logout,
       restorationError,
       logoutError,
+      isLoggingOut,
       retrySession,
       status,
     ],

@@ -14,6 +14,7 @@ const CLIENT_DEADLINE_MS = 30_000;
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_HISTORY_CHARACTERS = 6_000;
 const MAX_HISTORY_ITEM_CHARACTERS = 1_000;
+const MAX_DISPLAY_ANSWER_CHARACTERS = 65_536;
 
 export const ASSISTANT_REFUSAL_MESSAGE =
   'The public documentation does not support an answer to that question. Try a new question about the documented application behavior.';
@@ -60,12 +61,31 @@ type Completion =
   | { kind: 'failed'; error: StreamError }
   | { kind: 'aborted'; reason: AbortReason };
 
+function boundedHistoryContent(content: string) {
+  if (content.length <= MAX_HISTORY_ITEM_CHARACTERS) return content;
+  let end = MAX_HISTORY_ITEM_CHARACTERS;
+  const previous = content.charCodeAt(end - 1);
+  const next = content.charCodeAt(end);
+  if (
+    previous >= 0xd800 &&
+    previous <= 0xdbff &&
+    next >= 0xdc00 &&
+    next <= 0xdfff
+  ) {
+    end -= 1;
+  }
+  return content.slice(0, end);
+}
+
 function historyFrom(turns: AssistantTurn[]): AssistantHistoryItem[] {
   return turns.flatMap(({ question, answer }) =>
     answer
       ? [
           { role: 'user' as const, content: question },
-          { role: 'assistant' as const, content: answer },
+          {
+            role: 'assistant' as const,
+            content: boundedHistoryContent(answer),
+          },
         ]
       : [],
   );
@@ -116,9 +136,11 @@ function safeRequestError(error: unknown): StreamError {
 export function useAssistantStream({
   csrfToken,
   enabled,
+  interactionLocked,
 }: {
   csrfToken: string | null;
   enabled: boolean;
+  interactionLocked: boolean;
 }) {
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [attempt, setAttempt] = useState<ActiveAttempt | null>(null);
@@ -176,6 +198,7 @@ export function useAssistantStream({
       if (
         !enabled ||
         !csrfToken ||
+        interactionLocked ||
         !question ||
         question.length > MAX_HISTORY_ITEM_CHARACTERS ||
         activeControllerRef.current
@@ -224,10 +247,13 @@ export function useAssistantStream({
               );
             }
           } else if (event.type === 'delta') {
-            answer = (answer + event.data.text).slice(
-              0,
-              MAX_HISTORY_ITEM_CHARACTERS,
-            );
+            if (
+              event.data.text.length >
+              MAX_DISPLAY_ANSWER_CHARACTERS - answer.length
+            ) {
+              throw new AssistantProtocolError();
+            }
+            answer += event.data.text;
             if (mountedRef.current) {
               setAttempt((current) =>
                 current ? { ...current, answer } : current,
@@ -325,7 +351,7 @@ export function useAssistantStream({
       }
       return true;
     },
-    [abortActive, csrfToken, enabled],
+    [abortActive, csrfToken, enabled, interactionLocked],
   );
 
   return {

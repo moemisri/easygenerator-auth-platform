@@ -10,10 +10,23 @@ import { AssistantProtocolError } from './parse-event-stream';
 const MAX_RETRY_AFTER_SECONDS = 300;
 
 function retryAfterSeconds(value: string | null): number | undefined {
-  if (value === null || value.trim() === '') return undefined;
+  if (value === null || !/^[1-9]\d*$/.test(value)) return undefined;
   const seconds = Number(value);
-  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+  if (!Number.isFinite(seconds)) return undefined;
   return Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS);
+}
+
+async function cancelBody(response: Response) {
+  if (!response.body) return;
+  try {
+    await response.body.cancel();
+  } catch {
+    // Preserve the safe response error if disposal itself fails.
+  }
+}
+
+function mediaType(value: string | null) {
+  return value?.split(';', 1)[0]?.trim().toLowerCase();
 }
 
 async function parseProblem(response: Response) {
@@ -24,6 +37,8 @@ async function parseProblem(response: Response) {
     } catch {
       payload = undefined;
     }
+  } else {
+    await cancelBody(response);
   }
 
   const parsed = problemDetailsSchema.safeParse(payload);
@@ -59,14 +74,11 @@ export async function openAssistantStream(
 
   if (!response.ok) throw await parseProblem(response);
 
-  const contentType = response.headers.get('Content-Type') ?? '';
   if (!response.body) {
     throw new AssistantProtocolError();
   }
-  if (!contentType.toLowerCase().includes('text/event-stream')) {
-    void response.body.cancel().catch(() => {
-      // The safe protocol error remains authoritative if cancellation fails.
-    });
+  if (mediaType(response.headers.get('Content-Type')) !== 'text/event-stream') {
+    await cancelBody(response);
     throw new AssistantProtocolError();
   }
   return response.body;
