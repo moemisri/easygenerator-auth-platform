@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PinoLogger } from 'nestjs-pino';
 
 import { AuditModule } from './modules/audit/audit.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { configuration } from './platform/config/configuration';
@@ -23,6 +24,7 @@ import {
       validate: configuration,
     }),
     LoggingModule,
+    AdminModule,
     AuditModule,
     AuthModule,
     HealthModule,

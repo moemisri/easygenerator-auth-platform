@@ -120,7 +120,8 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const requestPath = requestTarget.split('?', 1)[0] ?? '';
     if (
       requestPath.startsWith('/api/v1/auth/') ||
-      requestPath === '/api/v1/users/me'
+      requestPath === '/api/v1/users/me' ||
+      requestPath.startsWith('/api/v1/admin/')
     ) {
       response.setHeader?.('Cache-Control', 'no-store');
     }

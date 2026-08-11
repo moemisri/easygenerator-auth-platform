@@ -224,4 +224,30 @@ describe('mapProblem', () => {
 
     expect(retryAfter).toBe('83');
   });
+
+  it('sets no-store on every admin error response', () => {
+    let cacheControl: string | undefined;
+    const response = {
+      setHeader: (name: string, value: string) => {
+        if (name === 'Cache-Control') cacheControl = value;
+      },
+      status: () => ({ json: () => undefined }),
+    };
+    const host = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          id: 'request-admin',
+          originalUrl: '/api/v1/admin/users?page=1',
+        }),
+        getResponse: () => response,
+      }),
+    } as ArgumentsHost;
+
+    new ProblemDetailsFilter({ error: () => undefined }).catch(
+      new AppError('INSUFFICIENT_CAPABILITY', 403),
+      host,
+    );
+
+    expect(cacheControl).toBe('no-store');
+  });
 });

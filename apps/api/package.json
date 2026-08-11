@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "bootstrap:admin": "tsx src/cli/bootstrap-admin.ts",
     "build": "nest build",
     "dev": "tsx watch src/main.ts",
     "lint": "eslint src test",

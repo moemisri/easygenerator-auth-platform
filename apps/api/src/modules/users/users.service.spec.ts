@@ -3,8 +3,10 @@ import type { ClientSession } from 'mongoose';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type {
+  AdminUserChanges,
   NewUser,
   StoredUser,
+  StoredUserPage,
   StoredUserWithPassword,
   UsersRepository,
 } from './users.repository';
@@ -42,6 +44,23 @@ class InMemoryUsersRepository {
     passwordHash: 'argon2-hash',
   };
   safeResult: StoredUser | null = storedUser;
+  pageResult: StoredUserPage = {
+    items: [storedUser],
+    total: 1,
+    summary: { total: 4, active: 3 },
+  };
+  lastLookupSession: ClientSession | undefined;
+  lastUpdate:
+    | {
+        id: string;
+        expectedVersion: number;
+        changes: AdminUserChanges;
+        dbSession: ClientSession;
+      }
+    | undefined;
+  bootstrapConflictResult: 'ADMIN_EXISTS' | 'EMAIL_EXISTS' | null = null;
+  lastBootstrapKey: string | undefined;
+  lastBootstrapSession: ClientSession | undefined;
 
   async create(user: NewUser, dbSession?: ClientSession): Promise<StoredUser> {
     this.lastCreate = { ...user };
@@ -56,8 +75,39 @@ class InMemoryUsersRepository {
     return this.authenticationResult;
   }
 
-  async findSafeById(): Promise<StoredUser | null> {
+  async findSafeById(
+    _id?: string,
+    dbSession?: ClientSession,
+  ): Promise<StoredUser | null> {
+    this.lastLookupSession = dbSession;
     return this.safeResult;
+  }
+
+  async findAdminPage(): Promise<StoredUserPage> {
+    return this.pageResult;
+  }
+
+  async updateAdminUser(
+    id: string,
+    expectedVersion: number,
+    changes: AdminUserChanges,
+    dbSession: ClientSession,
+  ): Promise<Omit<StoredUser, 'emailKey'> | null> {
+    this.lastUpdate = { id, expectedVersion, changes, dbSession };
+    return { ...storedUser, ...changes, version: expectedVersion + 1 };
+  }
+
+  async countActiveAdmins(): Promise<number> {
+    return 2;
+  }
+
+  async bootstrapConflict(
+    emailKey: string,
+    dbSession: ClientSession,
+  ): Promise<'ADMIN_EXISTS' | 'EMAIL_EXISTS' | null> {
+    this.lastBootstrapKey = emailKey;
+    this.lastBootstrapSession = dbSession;
+    return this.bootstrapConflictResult;
   }
 }
 
@@ -136,5 +186,70 @@ describe('UsersService', () => {
       service.findForAuthentication('nobody@example.com'),
     ).resolves.toBeNull();
     await expect(service.findSafeById('missing')).resolves.toBeNull();
+  });
+
+  it('maps bounded admin pages without internal user fields', async () => {
+    await expect(
+      service.listAdminUsers({
+        page: 1,
+        pageSize: 20,
+        sort: 'createdAt',
+        direction: 'desc',
+      }),
+    ).resolves.toEqual({
+      items: [expectedSafeUser],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      summary: { total: 4, active: 3 },
+    });
+  });
+
+  it('forwards transaction-bound reads, versioned updates, and admin counts', async () => {
+    const dbSession = { id: 'transaction' } as unknown as ClientSession;
+
+    await expect(
+      service.findSafeById(storedUser.id, dbSession),
+    ).resolves.toEqual(expectedSafeUser);
+    expect(repository.lastLookupSession).toBe(dbSession);
+    await expect(
+      service.updateAdminUser(storedUser.id, 3, { role: 'SUPPORT' }, dbSession),
+    ).resolves.toMatchObject({ role: 'SUPPORT', version: 4 });
+    expect(repository.lastUpdate).toEqual({
+      id: storedUser.id,
+      expectedVersion: 3,
+      changes: { role: 'SUPPORT' },
+      dbSession,
+    });
+    await expect(service.countActiveAdmins(dbSession)).resolves.toBe(2);
+  });
+
+  it('normalizes bootstrap checks and creates only an ACTIVE ADMIN', async () => {
+    const dbSession = { id: 'transaction' } as unknown as ClientSession;
+
+    await expect(
+      service.bootstrapConflict(' Admin@Example.com ', dbSession),
+    ).resolves.toBeNull();
+    expect(repository.lastBootstrapKey).toBe('admin@example.com');
+    expect(repository.lastBootstrapSession).toBe(dbSession);
+    await expect(
+      service.createBootstrapAdmin(
+        {
+          email: ' Admin@Example.com ',
+          name: 'Administrator',
+          passwordHash: 'argon2-hash',
+        },
+        dbSession,
+      ),
+    ).resolves.toEqual(expectedSafeUser);
+    expect(repository.lastCreate).toEqual({
+      email: 'Admin@Example.com',
+      emailKey: 'admin@example.com',
+      name: 'Administrator',
+      passwordHash: 'argon2-hash',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+    });
+    expect(repository.lastCreateSession).toBe(dbSession);
   });
 });

@@ -10,6 +10,7 @@ export const auditActions = [
   'SESSION_REJECTED',
   'USER_ROLE_CHANGED',
   'USER_STATUS_CHANGED',
+  'ADMIN_BOOTSTRAPPED',
   'ASSISTANT_REFUSED',
 ] as const;
 
