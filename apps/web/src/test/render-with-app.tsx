@@ -5,7 +5,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createQueryClient } from '../app/query-client';
 import { AuthProvider } from '../features/auth/AuthProvider';
 import type { AuthSessionResponse } from '../features/auth/auth-api';
+import { ProtectedRoute } from '../features/auth/ProtectedRoute';
 import { ApplicationPage } from '../pages/ApplicationPage';
+import { SignInPage } from '../pages/SignInPage';
 export function renderWithApp(
   ui: ReactElement,
   options?: { sessionPromise?: Promise<AuthSessionResponse | null> },
@@ -18,7 +20,15 @@ export function renderWithApp(
       <MemoryRouter initialEntries={['/']}>
         <AuthProvider restoreSession={restoreSession}>
           <Routes>
-            <Route path="/app" element={<ApplicationPage />} />
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <ApplicationPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/signin" element={<SignInPage />} />
             <Route path="*" element={ui} />
           </Routes>
         </AuthProvider>

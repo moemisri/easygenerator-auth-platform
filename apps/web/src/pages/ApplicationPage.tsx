@@ -1,6 +1,7 @@
 import { Button } from '../components/Button';
 import { ProblemAlert } from '../components/ProblemAlert';
 import { useAuth } from '../features/auth/AuthProvider';
+import { Link } from 'react-router-dom';
 export function ApplicationPage() {
   const { user, logout, logoutError } = useAuth();
   return (
@@ -8,8 +9,8 @@ export function ApplicationPage() {
       <header>
         <p className="product-mark">EASYGENERATOR</p>
         <nav aria-label="Application navigation">
-          <a href="/app">Overview</a>
-          {user?.role === 'ADMIN' && <a href="/app">Administration</a>}
+          <Link to="/app">Overview</Link>
+          {user?.role === 'ADMIN' && <Link to="/app">Administration</Link>}
           <Button onClick={() => void logout()}>Log out</Button>
         </nav>
       </header>
