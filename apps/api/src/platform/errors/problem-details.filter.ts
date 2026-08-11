@@ -1,16 +1,30 @@
-import type { ProblemDetails } from '@easygenerator/contracts';
+import {
+  problemDetailsSchema,
+  type ProblemDetails,
+} from '@easygenerator/contracts';
 import {
   ArgumentsHost,
   Catch,
   type ExceptionFilter,
   HttpException,
   HttpStatus,
+  Inject,
+  Injectable,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { AppError } from './app-error';
 
 const problemTypeBase = 'https://easygenerator.com/problems';
+export const PROBLEM_LOGGER = Symbol('PROBLEM_LOGGER');
+
+export interface ProblemLogger {
+  error(context: object, message: string): void;
+}
+
+function validatedProblem(problem: ProblemDetails): ProblemDetails {
+  return problemDetailsSchema.parse(problem);
+}
 
 function titleForStatus(status: number): string {
   const title = HttpStatus[status];
@@ -23,7 +37,7 @@ export function mapProblem(
   instance?: string,
 ): ProblemDetails {
   if (exception instanceof AppError) {
-    return {
+    return validatedProblem({
       type: `${problemTypeBase}/${exception.code.toLowerCase().replaceAll('_', '-')}`,
       title: titleForStatus(exception.status),
       status: exception.status,
@@ -32,19 +46,19 @@ export function mapProblem(
       ...(exception.detail === undefined ? {} : { detail: exception.detail }),
       ...(instance === undefined ? {} : { instance }),
       ...(exception.fields === undefined ? {} : { fields: exception.fields }),
-    };
+    });
   }
 
   if (exception instanceof HttpException && exception.getStatus() < 500) {
     const status = exception.getStatus();
-    return {
+    return validatedProblem({
       type: `${problemTypeBase}/http-${status}`,
       title: titleForStatus(status),
       status,
       code: `HTTP_${status}`,
       requestId,
       ...(instance === undefined ? {} : { instance }),
-    };
+    });
   }
 
   if (
@@ -59,18 +73,18 @@ export function mapProblem(
       status >= 400 &&
       status < 500
     ) {
-      return {
+      return validatedProblem({
         type: `${problemTypeBase}/http-${status}`,
         title: titleForStatus(status),
         status,
         code: `HTTP_${status}`,
         requestId,
         ...(instance === undefined ? {} : { instance }),
-      };
+      });
     }
   }
 
-  return {
+  return validatedProblem({
     type: `${problemTypeBase}/internal-error`,
     title: 'Internal Server Error',
     status: 500,
@@ -78,7 +92,7 @@ export function mapProblem(
     code: 'INTERNAL_ERROR',
     requestId,
     ...(instance === undefined ? {} : { instance }),
-  };
+  });
 }
 
 type ErrorRequest = {
@@ -88,7 +102,10 @@ type ErrorRequest = {
 };
 
 @Catch()
+@Injectable()
 export class ProblemDetailsFilter implements ExceptionFilter {
+  constructor(@Inject(PROBLEM_LOGGER) private readonly logger: ProblemLogger) {}
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const request = http.getRequest<ErrorRequest>();
@@ -101,6 +118,25 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       requestId,
       request.originalUrl ?? request.url,
     );
+
+    if (body.status >= 500) {
+      this.logger.error(
+        {
+          code: body.code,
+          errorType:
+            exception instanceof AppError
+              ? 'AppError'
+              : exception instanceof HttpException
+                ? 'HttpException'
+                : exception instanceof Error
+                  ? 'Error'
+                  : 'Unknown',
+          requestId,
+          status: body.status,
+        },
+        'Unexpected request failure',
+      );
+    }
 
     response.status(body.status).json(body);
   }

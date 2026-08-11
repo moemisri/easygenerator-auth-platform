@@ -17,6 +17,7 @@ import { ZodValidationPipe } from './platform/http/zod-validation.pipe';
 export function configureApplication(
   app: NestExpressApplication,
   config: Pick<AppConfig, 'TRUST_PROXY_HOPS'>,
+  problemDetailsFilter: ProblemDetailsFilter,
 ): void {
   app.set('trust proxy', config.TRUST_PROXY_HOPS);
   const requestIds = new RequestIdMiddleware();
@@ -36,7 +37,7 @@ export function configureApplication(
     }),
   );
   app.useGlobalPipes(new ZodValidationPipe());
-  app.useGlobalFilters(new ProblemDetailsFilter());
+  app.useGlobalFilters(problemDetailsFilter);
   app.setGlobalPrefix('api/v1', {
     exclude: [
       { path: 'health/live', method: RequestMethod.GET },
@@ -53,9 +54,13 @@ async function bootstrap() {
   });
   const config = app.get(ConfigService<AppConfig, true>);
   app.useLogger(app.get(Logger));
-  configureApplication(app, {
-    TRUST_PROXY_HOPS: config.get('TRUST_PROXY_HOPS', { infer: true }),
-  });
+  configureApplication(
+    app,
+    {
+      TRUST_PROXY_HOPS: config.get('TRUST_PROXY_HOPS', { infer: true }),
+    },
+    app.get(ProblemDetailsFilter),
+  );
   await app.listen(config.get('PORT', { infer: true }));
 }
 

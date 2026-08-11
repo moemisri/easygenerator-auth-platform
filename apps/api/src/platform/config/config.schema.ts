@@ -19,9 +19,9 @@ const developmentDefaults = {
 } as const;
 
 const renderHostnamePattern =
-  /^(?:[a-z0-9]|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9]))\.onrender\.com$/;
+  /^(?:[a-z0-9]|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9]))\.onrender\.com(?![\s\S])/;
 const strictBase64Pattern =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![\s\S])/;
 
 const booleanFromEnvironment = z.preprocess((value) => {
   if (value === 'true') return true;
@@ -68,7 +68,8 @@ const base64Secret = z
   .refine(
     (value) =>
       strictBase64Pattern.test(value) &&
-      Buffer.from(value, 'base64').length >= 32,
+      Buffer.from(value, 'base64').length >= 32 &&
+      Buffer.from(value, 'base64').toString('base64') === value,
     'Secret must contain at least 32 bytes of valid base64-decoded data',
   );
 

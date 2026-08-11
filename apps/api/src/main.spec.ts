@@ -5,6 +5,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { configureApplication } from './main';
+import { ProblemDetailsFilter } from './platform/errors/problem-details.filter';
 
 type BoundaryRequest = {
   cookies: Record<string, string>;
@@ -52,7 +53,11 @@ describe('configureApplication', () => {
     app = module.createNestApplication<NestExpressApplication>({
       bodyParser: false,
     });
-    configureApplication(app, { TRUST_PROXY_HOPS: 1 });
+    configureApplication(
+      app,
+      { TRUST_PROXY_HOPS: 1 },
+      new ProblemDetailsFilter({ error: () => undefined }),
+    );
     await app.init();
   });
 

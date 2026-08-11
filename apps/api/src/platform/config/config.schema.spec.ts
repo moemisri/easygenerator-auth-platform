@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { configSchema } from './config.schema';
 
 const secret32Bytes = Buffer.alloc(32, 7).toString('base64');
+const trailingLineTerminators = ['\n', '\r', '\r\n', '\u2028', '\u2029'];
 
 const productionConfig = {
   NODE_ENV: 'production',
@@ -52,6 +53,52 @@ describe('configSchema', () => {
         configSchema.parse({
           ...productionConfig,
           [field]: Buffer.alloc(31, 7).toString('base64'),
+        }),
+      ).toThrow();
+    },
+  );
+
+  it.each(['CSRF_SECRET', 'IDENTITY_HASH_SECRET'] as const)(
+    'rejects noncanonical base64 pad bits in %s',
+    (field) => {
+      const canonical = Buffer.alloc(32).toString('base64');
+      const noncanonical = `${canonical.slice(0, -2)}B=`;
+      expect(Buffer.from(noncanonical, 'base64').length).toBe(32);
+
+      expect(() =>
+        configSchema.parse({ ...productionConfig, [field]: noncanonical }),
+      ).toThrow();
+    },
+  );
+
+  it.each(['CSRF_SECRET', 'IDENTITY_HASH_SECRET'] as const)(
+    'rejects Buffer-tolerated malformed base64 in %s',
+    (field) => {
+      expect(Buffer.from(`${secret32Bytes}!`, 'base64').length).toBe(32);
+      expect(Buffer.from(secret32Bytes.slice(0, -1), 'base64').length).toBe(32);
+
+      expect(() =>
+        configSchema.parse({
+          ...productionConfig,
+          [field]: `${secret32Bytes}!`,
+        }),
+      ).toThrow();
+      expect(() =>
+        configSchema.parse({
+          ...productionConfig,
+          [field]: secret32Bytes.slice(0, -1),
+        }),
+      ).toThrow();
+    },
+  );
+
+  it.each(trailingLineTerminators)(
+    'rejects a base64 secret followed by line terminator %j',
+    (terminator) => {
+      expect(() =>
+        configSchema.parse({
+          ...productionConfig,
+          CSRF_SECRET: `${secret32Bytes}${terminator}`,
         }),
       ).toThrow();
     },
@@ -114,6 +161,17 @@ describe('configSchema', () => {
 
     expect(() => configSchema.parse(candidate)).toThrow();
   });
+
+  it.each(trailingLineTerminators)(
+    'rejects a Render hostname followed by line terminator %j',
+    (terminator) => {
+      const candidate: Record<string, unknown> = { ...productionConfig };
+      delete candidate.APP_ORIGIN;
+      candidate.RENDER_EXTERNAL_HOSTNAME = `easygenerator-auth.onrender.com${terminator}`;
+
+      expect(() => configSchema.parse(candidate)).toThrow();
+    },
+  );
 
   it('fails production startup when no allowed origin is available', () => {
     const candidate: Record<string, unknown> = { ...productionConfig };
