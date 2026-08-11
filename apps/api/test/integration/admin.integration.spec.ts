@@ -396,7 +396,7 @@ describe('administration HTTP API', () => {
     }).then((response) => expect(response.status).toBe(200));
   });
 
-  it('serializes duplicate concurrent active-admin removals and leaves one active admin', async () => {
+  it('rejects a duplicate concurrent admin removal with an exact stale-version conflict', async () => {
     const first = await signUp('first-admin@example.com', 'First Admin');
     const second = await signUp('second-admin@example.com', 'Second Admin');
     await setRole('first-admin@example.com', 'ADMIN');
@@ -423,6 +423,47 @@ describe('administration HTTP API', () => {
         status: 'ACTIVE',
       }),
     ).toBe(1);
+  });
+
+  it('serializes cross-admin removals and leaves exactly one active admin', async () => {
+    const first = await signUp('first-admin@example.com', 'First Admin');
+    const second = await signUp('second-admin@example.com', 'Second Admin');
+    await setRole('first-admin@example.com', 'ADMIN');
+    await setRole('second-admin@example.com', 'ADMIN');
+    await connection
+      .collection('securitystates')
+      .insertOne({ key: 'authorization', revision: 0 });
+
+    const responses = await Promise.all([
+      patchUser(first, second.user.id, { version: 0, status: 'DISABLED' }),
+      patchUser(second, first.user.id, { version: 0, status: 'DISABLED' }),
+    ]);
+
+    const outcomes = responses
+      .map((response) => ({
+        status: response.status,
+        code: response.body.code ?? null,
+        cacheControl: response.headers['cache-control'],
+      }))
+      .sort((left, right) => left.status - right.status);
+    const activeAdminCount = await connection
+      .collection('users')
+      .countDocuments({
+        role: 'ADMIN',
+        status: 'ACTIVE',
+      });
+
+    expect({ outcomes, activeAdminCount }).toEqual({
+      outcomes: [
+        { status: 200, code: null, cacheControl: 'no-store' },
+        {
+          status: 401,
+          code: 'UNAUTHENTICATED',
+          cacheControl: 'no-store',
+        },
+      ],
+      activeAdminCount: 1,
+    });
   });
 
   it('allows exactly one concurrent first-admin bootstrap', async () => {
