@@ -1,0 +1,30 @@
+{
+  "name": "@easygenerator/api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "nest build",
+    "dev": "tsx watch src/main.ts",
+    "lint": "eslint src test",
+    "test": "vitest run --exclude test/integration/**",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@easygenerator/contracts": "workspace:*",
+    "@nestjs/common": "^11.1.29",
+    "@nestjs/core": "^11.1.29",
+    "@nestjs/platform-express": "^11.1.29",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/testing": "^11.1.29",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.10"
+  }
+}
