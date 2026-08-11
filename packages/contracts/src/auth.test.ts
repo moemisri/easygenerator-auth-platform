@@ -12,6 +12,10 @@ import {
 
 describe('signupSchema', () => {
   const valid = { email: 'Ada@Example.com', name: 'Ada', password: 'Secure1!' };
+  const emailAtMaximumLength = `${'a'.repeat(242)}@example.com`;
+  const emailOverMaximumLength = `${'a'.repeat(243)}@example.com`;
+  const passwordAtMaximumLength = `${'A'.repeat(126)}1!`;
+  const passwordOverMaximumLength = `${'A'.repeat(127)}1!`;
 
   it('trims identity fields without changing the password', () => {
     expect(
@@ -33,6 +37,31 @@ describe('signupSchema', () => {
   });
 
   it.each([
+    ['malformed email', 'ada.example.com', false],
+    ['254-character email', emailAtMaximumLength, true],
+    ['255-character email', emailOverMaximumLength, false],
+  ])('accepts %s', (_caseName, email, accepted) => {
+    expect(signupSchema.safeParse({ ...valid, email }).success).toBe(accepted);
+  });
+
+  it.each([
+    ['two-character name after trimming', ' Al ', false],
+    ['80-character name after trimming', ` ${'A'.repeat(80)} `, true],
+    ['81-character name after trimming', ` ${'A'.repeat(81)} `, false],
+  ])('accepts %s', (_caseName, name, accepted) => {
+    expect(signupSchema.safeParse({ ...valid, name }).success).toBe(accepted);
+  });
+
+  it.each([
+    ['128-character password', passwordAtMaximumLength, true],
+    ['129-character password', passwordOverMaximumLength, false],
+  ])('accepts %s', (_caseName, password, accepted) => {
+    expect(signupSchema.safeParse({ ...valid, password }).success).toBe(
+      accepted,
+    );
+  });
+
+  it.each([
     ['role', 'ADMIN'],
     ['status', 'DISABLED'],
     ['id', 'user-123'],
@@ -47,6 +76,9 @@ describe('signupSchema', () => {
 });
 
 describe('signinSchema', () => {
+  const emailAtMaximumLength = `${'a'.repeat(242)}@example.com`;
+  const emailOverMaximumLength = `${'a'.repeat(243)}@example.com`;
+
   it('trims email without changing the password', () => {
     expect(
       signinSchema.parse({
@@ -67,6 +99,27 @@ describe('signinSchema', () => {
         role: 'ADMIN',
       }).success,
     ).toBe(false);
+  });
+
+  it.each([
+    ['malformed email', 'ada.example.com', false],
+    ['254-character email', emailAtMaximumLength, true],
+    ['255-character email', emailOverMaximumLength, false],
+  ])('accepts %s', (_caseName, email, accepted) => {
+    expect(
+      signinSchema.safeParse({ email, password: 'password' }).success,
+    ).toBe(accepted);
+  });
+
+  it.each([
+    ['empty password', '', false],
+    ['one-character password', 'p', true],
+    ['128-character password', 'p'.repeat(128), true],
+    ['129-character password', 'p'.repeat(129), false],
+  ])('accepts %s', (_caseName, password, accepted) => {
+    expect(
+      signinSchema.safeParse({ email: 'ada@example.com', password }).success,
+    ).toBe(accepted);
   });
 });
 
