@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
 import { REDIS } from '../../platform/redis/redis.constants';
 import {
   AssistantRateLimitError,
@@ -28,6 +29,7 @@ export class AssistantRateLimiterService {
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
     config: ConfigService,
+    private readonly privacyKeys: PrivacyKeyDigestService,
   ) {
     this.namespace = assistantRedisNamespace(config);
   }
@@ -35,10 +37,14 @@ export class AssistantRateLimiterService {
   async enforce(userId: string): Promise<void> {
     let result: unknown;
     try {
+      const actorDigest = this.privacyKeys.digest(
+        'assistant:rate:actor',
+        userId,
+      );
       result = await this.redis.eval(
         consumeFixedWindowScript,
         1,
-        `${this.namespace}:rate:${userId}`,
+        `${this.namespace}:rate:${actorDigest}`,
         ASSISTANT_RATE_LIMIT,
         ASSISTANT_RATE_WINDOW_SECONDS,
       );

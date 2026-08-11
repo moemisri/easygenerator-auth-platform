@@ -35,7 +35,7 @@ const corpus: AssistantCorpus = {
   ],
 };
 const lease: AssistantLease = {
-  key: 'easygenerator:test:assistant:active:user-1',
+  key: 'easygenerator:test:assistant:active:M6To1MuG1VkKSKaOKnbusSS5COHv2SUumJWam58z708',
   token: 'opaque-token',
 };
 

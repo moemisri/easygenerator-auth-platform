@@ -1,0 +1,7 @@
+import { AppError } from '../errors/app-error';
+
+export class RateLimitExceededError extends AppError {
+  constructor(public readonly retryAfterSeconds: number) {
+    super('RATE_LIMITED', 429);
+  }
+}

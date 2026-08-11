@@ -1,5 +1,3 @@
-import { createHmac } from 'node:crypto';
-
 import type {
   SafeUser,
   SigninInput,
@@ -11,12 +9,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditService } from '../audit/audit.service';
 import type { UsersService } from '../users/users.service';
 import { AppError } from '../../platform/errors/app-error';
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
 import type { RateLimiterService } from '../../platform/redis/rate-limiter.service';
 import type { PasswordService } from './password.service';
 import type { SessionService } from './session.service';
 import { AuthService, type AuthenticationRequestContext } from './auth.service';
 
 const identitySecret = Buffer.alloc(32, 9);
+const signupIpDigest = 'FbRIrznX68k2qY-ocRmyCRkVhdw3Qsx6D0UXOp3lDOA';
+const signinIpDigest = 'c2KtNdMi893CBP4MzYinuJnd9p6u0wm5AEXE2LekFuA';
+const signinIdentityDigest = 'uNzE4Ep4JhKKAtCv-abxBufK6LdFOkc9pOG8Xt0HWVo';
 const dummyPasswordHash = 'process-held-dummy-hash';
 const transactionSession = { id: 'transaction-session' };
 const requestContext: AuthenticationRequestContext = {
@@ -59,6 +61,7 @@ describe('AuthService', () => {
   };
   let audit: { record: ReturnType<typeof vi.fn> };
   let rateLimiter: { consume: ReturnType<typeof vi.fn> };
+  let privacyKeys: { digest: ReturnType<typeof vi.fn> };
   let connection: { transaction: ReturnType<typeof vi.fn> };
   let service: AuthService;
 
@@ -93,6 +96,17 @@ describe('AuthService', () => {
         retryAfterSeconds: 0,
       }),
     };
+    const realPrivacyKeys = new PrivacyKeyDigestService({
+      getOrThrow: (key: string) => {
+        if (key === 'IDENTITY_HASH_SECRET') {
+          return identitySecret.toString('base64');
+        }
+        throw new Error(`Unexpected config key: ${key}`);
+      },
+    } as never);
+    privacyKeys = {
+      digest: vi.fn(realPrivacyKeys.digest.bind(realPrivacyKeys)),
+    };
     connection = {
       transaction: vi.fn(async (work: (session: unknown) => unknown) =>
         work(transactionSession),
@@ -104,8 +118,8 @@ describe('AuthService', () => {
       sessions as unknown as SessionService,
       audit as unknown as AuditService,
       rateLimiter as unknown as RateLimiterService,
+      privacyKeys as unknown as PrivacyKeyDigestService,
       connection as unknown as Connection,
-      identitySecret,
       dummyPasswordHash,
     );
   });
@@ -158,9 +172,16 @@ describe('AuthService', () => {
       retryAfterSeconds: 321,
     });
     expect(rateLimiter.consume).toHaveBeenCalledWith(
-      'signup:ip:203.0.113.42',
+      `auth:signup:ip:${signupIpDigest}`,
       5,
       3600,
+    );
+    expect(privacyKeys.digest).toHaveBeenCalledWith(
+      'auth:signup:ip',
+      '203.0.113.42',
+    );
+    expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
+      '203.0.113.42',
     );
     expect(passwords.hash).not.toHaveBeenCalled();
   });
@@ -174,6 +195,21 @@ describe('AuthService', () => {
         status: 503,
       }),
     );
+    expect(passwords.hash).not.toHaveBeenCalled();
+  });
+
+  it('fails signup closed without Redis access when IP digesting fails', async () => {
+    privacyKeys.digest.mockImplementation(() => {
+      throw new Error('digest unavailable');
+    });
+
+    await expect(service.signUp(signupInput, requestContext)).rejects.toEqual(
+      expect.objectContaining({
+        code: 'AUTH_PROTECTION_UNAVAILABLE',
+        status: 503,
+      }),
+    );
+    expect(rateLimiter.consume).not.toHaveBeenCalled();
     expect(passwords.hash).not.toHaveBeenCalled();
   });
 
@@ -279,46 +315,45 @@ describe('AuthService', () => {
   });
 
   it('rate-limits signin by IP and HMAC email digest without exposing the identity', async () => {
-    const expectedDigest = createHmac('sha256', identitySecret)
-      .update('ada@example.com')
-      .digest('base64url');
-
     await service.signIn(signinInput, requestContext);
 
     expect(rateLimiter.consume).toHaveBeenNthCalledWith(
       1,
-      'signin:ip:203.0.113.42',
+      `auth:signin:ip:${signinIpDigest}`,
       10,
       900,
     );
     expect(rateLimiter.consume).toHaveBeenNthCalledWith(
       2,
-      `signin:identity:${expectedDigest}`,
+      `auth:signin:identity:${signinIdentityDigest}`,
       5,
       900,
     );
+    expect(privacyKeys.digest.mock.calls).toEqual([
+      ['auth:signin:ip', '203.0.113.42'],
+      ['auth:signin:identity', 'ada@example.com'],
+    ]);
     expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
       'Ada@Example.com',
     );
     expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
       'ada@example.com',
     );
+    expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
+      '203.0.113.42',
+    );
   });
 
   it('audits failed signin with only the HMAC identity digest', async () => {
     users.findForAuthentication.mockResolvedValue(null);
     passwords.verify.mockResolvedValue(false);
-    const expectedDigest = createHmac('sha256', identitySecret)
-      .update('ada@example.com')
-      .digest('base64url');
-
     await expect(
       service.signIn(signinInput, requestContext),
     ).rejects.toBeInstanceOf(AppError);
 
     expect(audit.record).toHaveBeenCalledWith({
       action: 'AUTH_SIGNIN_FAILED',
-      identityDigest: expectedDigest,
+      identityDigest: signinIdentityDigest,
       requestId: 'request-123',
     });
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain(
@@ -366,6 +401,24 @@ describe('AuthService', () => {
         status: 503,
       }),
     );
+    expect(users.findForAuthentication).not.toHaveBeenCalled();
+  });
+
+  it('fails signin closed without Redis access when either digest fails', async () => {
+    privacyKeys.digest.mockImplementation((scope: string) => {
+      if (scope === 'auth:signin:identity') {
+        throw new Error('digest unavailable');
+      }
+      return signinIpDigest;
+    });
+
+    await expect(service.signIn(signinInput, requestContext)).rejects.toEqual(
+      expect.objectContaining({
+        code: 'AUTH_PROTECTION_UNAVAILABLE',
+        status: 503,
+      }),
+    );
+    expect(rateLimiter.consume).not.toHaveBeenCalled();
     expect(users.findForAuthentication).not.toHaveBeenCalled();
   });
 

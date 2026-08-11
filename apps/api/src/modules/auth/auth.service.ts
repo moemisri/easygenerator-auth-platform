@@ -1,5 +1,3 @@
-import { createHmac } from 'node:crypto';
-
 import type {
   SafeUser,
   SigninInput,
@@ -12,11 +10,11 @@ import type { Connection } from 'mongoose';
 import { AuditService } from '../audit/audit.service';
 import { UsersService } from '../users/users.service';
 import { AppError } from '../../platform/errors/app-error';
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
+import { RateLimitExceededError } from '../../platform/redis/rate-limit-exceeded.error';
 import { RateLimiterService } from '../../platform/redis/rate-limiter.service';
 import {
   DUMMY_PASSWORD_HASH,
-  IDENTITY_HASH_SECRET,
-  RateLimitExceededError,
   SIGNIN_IDENTITY_LIMIT,
   SIGNIN_IP_LIMIT,
   SIGNIN_WINDOW_SECONDS,
@@ -53,8 +51,8 @@ export class AuthService {
     private readonly sessions: SessionService,
     private readonly audit: AuditService,
     private readonly rateLimiter: RateLimiterService,
+    private readonly privacyKeys: PrivacyKeyDigestService,
     @InjectConnection() private readonly connection: Connection,
-    @Inject(IDENTITY_HASH_SECRET) private readonly identitySecret: Buffer,
     @Inject(DUMMY_PASSWORD_HASH) private readonly dummyPasswordHash: string,
   ) {}
 
@@ -101,10 +99,10 @@ export class AuthService {
     context: AuthenticationRequestContext,
   ): Promise<AuthenticationResult> {
     const normalizedIdentity = input.email.trim().toLowerCase();
-    const identityDigest = createHmac('sha256', this.identitySecret)
-      .update(normalizedIdentity)
-      .digest('base64url');
-    await this.enforceSigninLimits(context.ip, identityDigest);
+    const identityDigest = await this.enforceSigninLimits(
+      context.ip,
+      normalizedIdentity,
+    );
 
     const authenticationUser =
       await this.users.findForAuthentication(normalizedIdentity);
@@ -169,8 +167,9 @@ export class AuthService {
 
   private async enforceSignupLimit(ip: string): Promise<void> {
     try {
+      const ipDigest = this.privacyKeys.digest('auth:signup:ip', ip);
       const decision = await this.rateLimiter.consume(
-        `signup:ip:${ip}`,
+        `auth:signup:ip:${ipDigest}`,
         SIGNUP_IP_LIMIT,
         SIGNUP_WINDOW_SECONDS,
       );
@@ -185,17 +184,22 @@ export class AuthService {
 
   private async enforceSigninLimits(
     ip: string,
-    identityDigest: string,
-  ): Promise<void> {
+    normalizedIdentity: string,
+  ): Promise<string> {
     try {
+      const ipDigest = this.privacyKeys.digest('auth:signin:ip', ip);
+      const identityDigest = this.privacyKeys.digest(
+        'auth:signin:identity',
+        normalizedIdentity,
+      );
       const decisions = await Promise.all([
         this.rateLimiter.consume(
-          `signin:ip:${ip}`,
+          `auth:signin:ip:${ipDigest}`,
           SIGNIN_IP_LIMIT,
           SIGNIN_WINDOW_SECONDS,
         ),
         this.rateLimiter.consume(
-          `signin:identity:${identityDigest}`,
+          `auth:signin:identity:${identityDigest}`,
           SIGNIN_IDENTITY_LIMIT,
           SIGNIN_WINDOW_SECONDS,
         ),
@@ -206,6 +210,7 @@ export class AuthService {
           Math.max(...blocked.map((decision) => decision.retryAfterSeconds)),
         );
       }
+      return identityDigest;
     } catch (error) {
       if (error instanceof RateLimitExceededError) throw error;
       throw new AppError('AUTH_PROTECTION_UNAVAILABLE', 503);

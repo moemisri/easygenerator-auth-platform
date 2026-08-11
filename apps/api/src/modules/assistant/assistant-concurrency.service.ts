@@ -4,6 +4,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
 import { REDIS } from '../../platform/redis/redis.constants';
 import {
   assistantProtectionUnavailable,
@@ -45,17 +46,23 @@ export class AssistantConcurrencyService {
     config: ConfigService,
     @Inject(ASSISTANT_LEASE_RANDOM_SOURCE)
     private readonly random: AssistantLeaseRandomSource,
+    private readonly privacyKeys: PrivacyKeyDigestService,
   ) {
     this.namespace = assistantRedisNamespace(config);
   }
 
   async acquire(userId: string): Promise<AssistantLease> {
-    const lease = {
-      key: `${this.namespace}:active:${userId}`,
-      token: this.random.token(),
-    };
+    let lease: AssistantLease;
     let result: unknown;
     try {
+      const actorDigest = this.privacyKeys.digest(
+        'assistant:lease:actor',
+        userId,
+      );
+      lease = {
+        key: `${this.namespace}:active:${actorDigest}`,
+        token: this.random.token(),
+      };
       const setLease = this.redis.set.bind(this.redis) as unknown as (
         key: string,
         value: string,

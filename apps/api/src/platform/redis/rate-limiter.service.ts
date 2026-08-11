@@ -30,10 +30,7 @@ export class RateLimiterService {
     const environment = config.getOrThrow<
       'development' | 'test' | 'production'
     >('NODE_ENV');
-    this.namespace =
-      environment === 'test'
-        ? 'easygenerator:test:auth-rate-limit:'
-        : 'easygenerator:auth-rate-limit:';
+    this.namespace = `easygenerator:${environment}:rate-limit:`;
   }
 
   async consume(
@@ -41,6 +38,13 @@ export class RateLimiterService {
     limit: number,
     windowSeconds: number,
   ): Promise<RateLimitDecision> {
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error('limit must be a positive integer');
+    }
+    if (!Number.isInteger(windowSeconds) || windowSeconds <= 0) {
+      throw new Error('windowSeconds must be a positive integer');
+    }
+
     const result: unknown = await this.redis.eval(
       consumeFixedWindowScript,
       1,
@@ -51,8 +55,10 @@ export class RateLimiterService {
     if (
       !Array.isArray(result) ||
       result.length !== 2 ||
-      typeof result[0] !== 'number' ||
-      typeof result[1] !== 'number'
+      !Number.isInteger(result[0]) ||
+      !Number.isInteger(result[1]) ||
+      (result[0] as number) < 1 ||
+      (result[1] as number) < 0
     ) {
       throw new Error('Unexpected Redis rate-limit result');
     }

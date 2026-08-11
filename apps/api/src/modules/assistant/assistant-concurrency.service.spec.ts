@@ -2,15 +2,21 @@ import type { ConfigService } from '@nestjs/config';
 import type Redis from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
 
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
 import {
   AssistantConcurrencyService,
   type AssistantLeaseRandomSource,
 } from './assistant-concurrency.service';
 
+const actorDigest = 'M6To1MuG1VkKSKaOKnbusSS5COHv2SUumJWam58z708';
+
 function config(): ConfigService {
   return {
     getOrThrow: (key: string) => {
       if (key === 'NODE_ENV') return 'test';
+      if (key === 'IDENTITY_HASH_SECRET') {
+        return Buffer.alloc(32, 9).toString('base64');
+      }
       throw new Error(`Unexpected config key ${key}`);
     },
   } as ConfigService;
@@ -27,21 +33,23 @@ describe('AssistantConcurrencyService', () => {
       { set } as unknown as Redis,
       config(),
       random,
+      new PrivacyKeyDigestService(config()),
     );
 
     const lease = await leases.acquire('user-1');
 
     expect(lease).toEqual({
-      key: 'easygenerator:test:assistant:active:user-1',
+      key: `easygenerator:test:assistant:active:${actorDigest}`,
       token: 'lease-token-a',
     });
     expect(set).toHaveBeenCalledWith(
-      'easygenerator:test:assistant:active:user-1',
+      `easygenerator:test:assistant:active:${actorDigest}`,
       'lease-token-a',
       'NX',
       'EX',
       35,
     );
+    expect(JSON.stringify(set.mock.calls)).not.toContain('user-1');
   });
 
   it('returns a stable 429 with Retry-After when the lease is held', async () => {
@@ -49,6 +57,7 @@ describe('AssistantConcurrencyService', () => {
       { set: vi.fn(async () => null) } as unknown as Redis,
       config(),
       random,
+      new PrivacyKeyDigestService(config()),
     );
 
     await expect(leases.acquire('user-1')).rejects.toMatchObject({
@@ -64,17 +73,18 @@ describe('AssistantConcurrencyService', () => {
       { eval: eval_ } as unknown as Redis,
       config(),
       random,
+      new PrivacyKeyDigestService(config()),
     );
 
     await leases.release({
-      key: 'easygenerator:test:assistant:active:user-1',
+      key: `easygenerator:test:assistant:active:${actorDigest}`,
       token: 'lease-token-a',
     });
 
     expect(eval_).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('GET', KEYS[1])"),
       1,
-      'easygenerator:test:assistant:active:user-1',
+      `easygenerator:test:assistant:active:${actorDigest}`,
       'lease-token-a',
     );
   });
@@ -86,6 +96,7 @@ describe('AssistantConcurrencyService', () => {
         { eval: vi.fn(async () => result) } as unknown as Redis,
         config(),
         random,
+        new PrivacyKeyDigestService(config()),
       );
 
       await expect(
@@ -106,11 +117,32 @@ describe('AssistantConcurrencyService', () => {
       } as unknown as Redis,
       config(),
       random,
+      new PrivacyKeyDigestService(config()),
     );
 
     await expect(leases.acquire('user-1')).rejects.toMatchObject({
       code: 'ASSISTANT_PROTECTION_UNAVAILABLE',
       status: 503,
     });
+  });
+
+  it('fails closed without Redis access when actor digesting fails', async () => {
+    const set = vi.fn();
+    const leases = new AssistantConcurrencyService(
+      { set } as unknown as Redis,
+      config(),
+      random,
+      {
+        digest: () => {
+          throw new Error('digest unavailable');
+        },
+      } as unknown as PrivacyKeyDigestService,
+    );
+
+    await expect(leases.acquire('user-1')).rejects.toMatchObject({
+      code: 'ASSISTANT_PROTECTION_UNAVAILABLE',
+      status: 503,
+    });
+    expect(set).not.toHaveBeenCalled();
   });
 });

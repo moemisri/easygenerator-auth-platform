@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -205,6 +206,38 @@ async function waitForRedis(redis: Redis): Promise<void> {
   throw new Error('Redis did not recover after restart');
 }
 
+async function scanKeys(redis: Redis, pattern: string): Promise<string[]> {
+  const found: string[] = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await redis.scan(
+      cursor,
+      'MATCH',
+      pattern,
+      'COUNT',
+      5,
+    );
+    cursor = nextCursor;
+    found.push(...keys);
+  } while (cursor !== '0');
+  return found.sort();
+}
+
+function privacyDigest(scope: string, value: string): string {
+  return createHmac('sha256', Buffer.alloc(32, 4))
+    .update(scope)
+    .update('\0')
+    .update(value)
+    .digest('base64url');
+}
+
+function assistantLeaseKey(userId: string): string {
+  return `easygenerator:test:assistant:active:${privacyDigest(
+    'assistant:lease:actor',
+    userId,
+  )}`;
+}
+
 async function createAssistantApp(
   enabled: boolean,
   provider: AssistantProvider,
@@ -385,9 +418,8 @@ describe('assistant HTTP API', () => {
     expect(streamed.filter((event) => event.type === 'done')).toHaveLength(1);
 
     const redis = app.get<Redis>(REDIS);
-    const [, keys] = await redis.scan(
-      '0',
-      'MATCH',
+    const keys = await scanKeys(
+      redis,
       'easygenerator:test:assistant:retrieval:*',
     );
     expect(keys).toHaveLength(1);
@@ -433,6 +465,17 @@ describe('assistant HTTP API', () => {
     expect(Number(denied.headers['retry-after'])).toBeGreaterThan(0);
     expect(Number(denied.headers['retry-after'])).toBeLessThanOrEqual(60);
     expect(provider.calls).toHaveLength(10);
+    const keys = await scanKeys(
+      app.get<Redis>(REDIS),
+      'easygenerator:test:assistant:rate:*',
+    );
+    expect(keys).toEqual([
+      `easygenerator:test:assistant:rate:${privacyDigest(
+        'assistant:rate:actor',
+        signedIn.userId,
+      )}`,
+    ]);
+    expect(keys[0]).not.toContain(signedIn.userId);
   });
 
   it('fails closed before provider access when Redis is unavailable', async () => {
@@ -473,6 +516,8 @@ describe('assistant HTTP API', () => {
     const leases = app.get(AssistantConcurrencyService);
     const redis = app.get<Redis>(REDIS);
     const first = await leases.acquire(signedIn.userId);
+    expect(first.key).toBe(assistantLeaseKey(signedIn.userId));
+    expect(first.key).not.toContain(signedIn.userId);
     await redis.del(first.key);
     const second = await leases.acquire(signedIn.userId);
 
@@ -518,7 +563,7 @@ describe('assistant HTTP API', () => {
     });
 
     const redis = app.get<Redis>(REDIS);
-    const leaseKey = `easygenerator:test:assistant:active:${signedIn.userId}`;
+    const leaseKey = assistantLeaseKey(signedIn.userId);
     expect(await redis.ttl(leaseKey)).toBeGreaterThan(0);
     const protectedRequest = await chat(
       signedIn,
@@ -547,18 +592,12 @@ describe('assistant HTTP API', () => {
 
     const redis = app.get<Redis>(REDIS);
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      const active = await redis.exists(
-        `easygenerator:test:assistant:active:${signedIn.userId}`,
-      );
+      const active = await redis.exists(assistantLeaseKey(signedIn.userId));
       if (active === 0 && provider.abortObserved) break;
       await delay(10);
     }
     expect(provider.abortObserved).toBe(true);
-    expect(
-      await redis.exists(
-        `easygenerator:test:assistant:active:${signedIn.userId}`,
-      ),
-    ).toBe(0);
+    expect(await redis.exists(assistantLeaseKey(signedIn.userId))).toBe(0);
     await chat(signedIn, 'sessions architecture').expect(200);
   });
 });

@@ -29,6 +29,8 @@ import { configureApplication } from '../../src/main';
 import { ProblemDetailsFilter } from '../../src/platform/errors/problem-details.filter';
 import { OriginGuard } from '../../src/platform/http/origin.guard';
 import { createOpenApiDocument } from '../../src/platform/http/openapi';
+import { PrivacyKeyDigestService } from '../../src/platform/redis/privacy-key-digest.service';
+import { RateLimiterService } from '../../src/platform/redis/rate-limiter.service';
 
 type ComponentsObject = NonNullable<OpenAPIObject['components']>;
 type SchemaOrReference = NonNullable<ComponentsObject['schemas']>[string];
@@ -123,6 +125,8 @@ const expectedResponseMaps = {
       '403': ['application/json'],
       '404': ['application/json'],
       '409': ['application/json'],
+      '429': ['application/json'],
+      '503': ['application/json'],
     },
   },
   '/api/v1/admin/audit-events': {
@@ -254,6 +258,8 @@ describe('public OpenAPI document', () => {
         { provide: CsrfService, useValue: {} },
         { provide: SessionService, useValue: {} },
         { provide: AdminService, useValue: {} },
+        { provide: PrivacyKeyDigestService, useValue: {} },
+        { provide: RateLimiterService, useValue: {} },
         { provide: AuditService, useValue: {} },
         { provide: AssistantService, useValue: {} },
         {

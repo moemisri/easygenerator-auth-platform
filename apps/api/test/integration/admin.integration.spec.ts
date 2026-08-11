@@ -1,5 +1,8 @@
+import { once } from 'node:events';
+
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { getConnectionToken } from '@nestjs/mongoose';
+import type Redis from 'ioredis';
 import type { Connection } from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -9,6 +12,7 @@ import { AdminRepository } from '../../src/modules/admin/admin.repository';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { PasswordService } from '../../src/modules/auth/password.service';
 import { UsersService } from '../../src/modules/users/users.service';
+import { REDIS } from '../../src/platform/redis/redis.constants';
 import { createTestApp } from '../support/create-test-app';
 import { resetDatastores } from '../support/reset-datastores';
 
@@ -36,9 +40,37 @@ function setCookieHeader(response: {
   return pair;
 }
 
+async function scanKeys(redis: Redis, pattern: string): Promise<string[]> {
+  const found: string[] = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await redis.scan(
+      cursor,
+      'MATCH',
+      pattern,
+      'COUNT',
+      5,
+    );
+    cursor = nextCursor;
+    found.push(...keys);
+  } while (cursor !== '0');
+  return found.sort();
+}
+
+function expressApplication(app: NestExpressApplication): {
+  get(setting: string): unknown;
+  set(setting: string, value: unknown): void;
+} {
+  return app.getHttpAdapter().getInstance() as {
+    get(setting: string): unknown;
+    set(setting: string, value: unknown): void;
+  };
+}
+
 describe('administration HTTP API', () => {
   let app: NestExpressApplication;
   let failingAuditApp: NestExpressApplication;
+  let outageApp: NestExpressApplication;
   let connection: Connection;
 
   beforeAll(async () => {
@@ -50,6 +82,7 @@ describe('administration HTTP API', () => {
         },
       },
     });
+    outageApp = await createTestApp();
     connection = app.get<Connection>(getConnectionToken());
   });
 
@@ -58,6 +91,7 @@ describe('administration HTTP API', () => {
   });
 
   afterAll(async () => {
+    await outageApp?.close();
     await failingAuditApp?.close();
     await app?.close();
   });
@@ -65,8 +99,9 @@ describe('administration HTTP API', () => {
   async function signUp(
     email: string,
     name = 'Example User',
+    targetApp = app,
   ): Promise<SignedInUser> {
-    const agent = request.agent(app.getHttpServer());
+    const agent = request.agent(targetApp.getHttpServer());
     const response = await agent
       .post('/api/v1/auth/signup')
       .set('Origin', appOrigin)
@@ -223,6 +258,120 @@ describe('administration HTTP API', () => {
         .collection('auditevents')
         .countDocuments({ targetId: basic.user.id }),
     ).toBe(0);
+  });
+
+  it('rate-limits the 21st authorized PATCH with only private actor and trusted-IP keys', async () => {
+    const admin = await signUp('admin@example.com', 'Admin User');
+    const target = await signUp('target@example.com', 'Target User');
+    await setRole('admin@example.com', 'ADMIN');
+    const trustedIpSentinel = '198.51.100.91';
+    const expressApp = expressApplication(app);
+    const previousTrustProxy = expressApp.get('trust proxy');
+    expressApp.set('trust proxy', 1);
+    try {
+      for (let attempt = 1; attempt <= 20; attempt += 1) {
+        const stale = await admin.agent
+          .patch(`/api/v1/admin/users/${target.user.id}`)
+          .set('Origin', appOrigin)
+          .set('X-CSRF-Token', admin.csrfToken)
+          .set('X-Forwarded-For', trustedIpSentinel)
+          .send({ version: 99, status: 'DISABLED' })
+          .expect(409);
+        expect(stale.body.code).toBe('STALE_USER_VERSION');
+      }
+
+      const blocked = await admin.agent
+        .patch(`/api/v1/admin/users/${target.user.id}`)
+        .set('Origin', appOrigin)
+        .set('X-CSRF-Token', admin.csrfToken)
+        .set('X-Forwarded-For', trustedIpSentinel)
+        .send({ version: 99, status: 'DISABLED' })
+        .expect(429);
+      expect(blocked.body).toMatchObject({ code: 'RATE_LIMITED', status: 429 });
+      expect(blocked.headers['cache-control']).toBe('no-store');
+      expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+      expect(Number(blocked.headers['retry-after'])).toBeLessThanOrEqual(60);
+
+      const keys = await scanKeys(
+        app.get<Redis>(REDIS),
+        'easygenerator:test:rate-limit:admin-mutation:*',
+      );
+      expect(keys).toHaveLength(2);
+      expect(keys).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /^easygenerator:test:rate-limit:admin-mutation:actor:[A-Za-z0-9_-]{43}$/,
+          ),
+          expect.stringMatching(
+            /^easygenerator:test:rate-limit:admin-mutation:ip:[A-Za-z0-9_-]{43}$/,
+          ),
+        ]),
+      );
+      expect(JSON.stringify(keys)).not.toContain(admin.user.id);
+      expect(JSON.stringify(keys)).not.toContain(trustedIpSentinel);
+
+      const stored = await connection.collection('users').findOne({
+        _id: new connection.base.Types.ObjectId(target.user.id),
+      });
+      expect(stored).toMatchObject({ status: 'ACTIVE', version: 0 });
+      expect(
+        await connection
+          .collection('auditevents')
+          .countDocuments({ targetId: target.user.id }),
+      ).toBe(0);
+    } finally {
+      expressApp.set('trust proxy', previousTrustProxy);
+    }
+    expect(expressApp.get('trust proxy')).toBe(previousTrustProxy);
+  });
+
+  it('keeps admin GETs available but fails PATCH closed when its Redis client ends', async () => {
+    const admin = await signUp(
+      'outage-admin@example.com',
+      'Outage Admin',
+      outageApp,
+    );
+    const target = await signUp(
+      'outage-target@example.com',
+      'Outage Target',
+      outageApp,
+    );
+    await setRole('outage-admin@example.com', 'ADMIN');
+    const beforeAuditCount = await connection
+      .collection('auditevents')
+      .countDocuments();
+    const redis = outageApp.get<Redis>(REDIS);
+    const ended = once(redis, 'end');
+    redis.disconnect();
+    await ended;
+
+    await admin.agent
+      .get('/api/v1/admin/users')
+      .expect(200)
+      .expect('Cache-Control', 'no-store');
+    await admin.agent
+      .get('/api/v1/admin/audit-events')
+      .expect(200)
+      .expect('Cache-Control', 'no-store');
+    const unavailable = await admin.agent
+      .patch(`/api/v1/admin/users/${target.user.id}`)
+      .set('Origin', appOrigin)
+      .set('X-CSRF-Token', admin.csrfToken)
+      .send({ version: 0, status: 'DISABLED' })
+      .expect(503);
+    expect(unavailable.body).toMatchObject({
+      code: 'ADMIN_MUTATION_PROTECTION_UNAVAILABLE',
+      status: 503,
+    });
+    expect(unavailable.headers['cache-control']).toBe('no-store');
+
+    const stored = await connection.collection('users').findOne({
+      _id: new connection.base.Types.ObjectId(target.user.id),
+    });
+    expect(stored).toMatchObject({ status: 'ACTIVE', version: 0 });
+    expect(await connection.collection('auditevents').countDocuments()).toBe(
+      beforeAuditCount,
+    );
   });
 
   it('commits version, per-field audits, and all-session revocation together', async () => {

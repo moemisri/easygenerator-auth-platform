@@ -431,6 +431,8 @@ export const ApiAdminUpdateUser = () =>
       'LAST_ACTIVE_ADMIN_PROTECTED',
       'ADMIN_UPDATE_CONFLICT',
     ]),
+    apiProblemResponse(429, ['RATE_LIMITED']),
+    apiProblemResponse(503, ['ADMIN_MUTATION_PROTECTION_UNAVAILABLE']),
   );
 
 export const ApiAdminAuditEvents = () =>

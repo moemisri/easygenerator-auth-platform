@@ -7,7 +7,7 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { AppError } from './app-error';
-import { RateLimitExceededError } from '../../modules/auth/auth.constants';
+import { RateLimitExceededError } from '../redis/rate-limit-exceeded.error';
 import {
   mapProblem,
   ProblemDetailsFilter,

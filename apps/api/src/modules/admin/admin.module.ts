@@ -5,6 +5,8 @@ import { AuditController } from '../audit/audit.controller';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { UsersModule } from '../users/users.module';
+import { RedisModule } from '../../platform/redis/redis.module';
+import { AdminMutationProtectionGuard } from './admin-mutation-protection.guard';
 import { AdminController } from './admin.controller';
 import { AdminRepository } from './admin.repository';
 import { AdminService } from './admin.service';
@@ -21,10 +23,16 @@ import {
     ]),
     AuditModule,
     AuthModule,
+    RedisModule,
     UsersModule,
   ],
   controllers: [AdminController, AuditController],
-  providers: [AdminRepository, AdminService, CapabilityGuard],
+  providers: [
+    AdminMutationProtectionGuard,
+    AdminRepository,
+    AdminService,
+    CapabilityGuard,
+  ],
   exports: [AdminRepository],
 })
 export class AdminModule {}

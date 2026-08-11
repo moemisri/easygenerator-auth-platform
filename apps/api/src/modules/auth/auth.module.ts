@@ -6,11 +6,10 @@ import { MongooseModule } from '@nestjs/mongoose';
 
 import { AuditModule } from '../audit/audit.module';
 import { UsersModule } from '../users/users.module';
-import { RateLimiterService } from '../../platform/redis/rate-limiter.service';
 import { RedisModule } from '../../platform/redis/redis.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { DUMMY_PASSWORD_HASH, IDENTITY_HASH_SECRET } from './auth.constants';
+import { DUMMY_PASSWORD_HASH } from './auth.constants';
 import { CookieService } from './cookie.service';
 import { CsrfGuard } from './csrf.guard';
 import {
@@ -51,7 +50,6 @@ const constantTimeDigestComparator: DigestComparator = (left, right) =>
     CookieService,
     SessionGuard,
     CsrfGuard,
-    RateLimiterService,
     { provide: AUTH_CLOCK, useValue: systemClock },
     { provide: SESSION_RANDOM_SOURCE, useValue: cryptographicRandomSource },
     {
@@ -63,15 +61,6 @@ const constantTimeDigestComparator: DigestComparator = (left, right) =>
     {
       provide: CSRF_DIGEST_COMPARATOR,
       useValue: constantTimeDigestComparator,
-    },
-    {
-      provide: IDENTITY_HASH_SECRET,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) =>
-        Buffer.from(
-          config.getOrThrow<string>('IDENTITY_HASH_SECRET'),
-          'base64',
-        ),
     },
     {
       provide: DUMMY_PASSWORD_HASH,
@@ -88,7 +77,6 @@ const constantTimeDigestComparator: DigestComparator = (left, right) =>
     CookieService,
     SessionGuard,
     CsrfGuard,
-    RateLimiterService,
   ],
 })
 export class AuthModule {}

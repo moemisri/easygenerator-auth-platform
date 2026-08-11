@@ -26,6 +26,7 @@ import { CsrfGuard } from '../auth/csrf.guard';
 import type { AuthenticatedHttpRequest } from '../auth/session.guard';
 import { SessionGuard } from '../auth/session.guard';
 import type { AuthenticatedPrincipal } from '../auth/session.service';
+import { AdminMutationProtectionGuard } from './admin-mutation-protection.guard';
 import { AdminService } from './admin.service';
 import { RequireCapability } from './capability.decorator';
 import { CapabilityGuard } from './capability.guard';
@@ -71,7 +72,12 @@ export class AdminController {
 
   @Patch(':id')
   @ApiAdminUpdateUser()
-  @UseGuards(SessionGuard, CsrfGuard, CapabilityGuard)
+  @UseGuards(
+    SessionGuard,
+    CsrfGuard,
+    CapabilityGuard,
+    AdminMutationProtectionGuard,
+  )
   @RequireCapability('MANAGE_BASIC_USERS')
   @Header('Cache-Control', 'no-store')
   update(

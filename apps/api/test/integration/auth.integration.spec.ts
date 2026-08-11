@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +57,41 @@ async function waitForRedis(redis: Redis): Promise<void> {
     }
   }
   throw new Error('Redis did not recover after restart');
+}
+
+async function scanKeys(redis: Redis, pattern: string): Promise<string[]> {
+  const found: string[] = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await redis.scan(
+      cursor,
+      'MATCH',
+      pattern,
+      'COUNT',
+      5,
+    );
+    cursor = nextCursor;
+    found.push(...keys);
+  } while (cursor !== '0');
+  return found.sort();
+}
+
+function privacyDigest(scope: string, value: string): string {
+  return createHmac('sha256', Buffer.alloc(32, 4))
+    .update(scope)
+    .update('\0')
+    .update(value)
+    .digest('base64url');
+}
+
+function expressApplication(app: NestExpressApplication): {
+  get(setting: string): unknown;
+  set(setting: string, value: unknown): void;
+} {
+  return app.getHttpAdapter().getInstance() as {
+    get(setting: string): unknown;
+    set(setting: string, value: unknown): void;
+  };
 }
 
 describe('authentication HTTP API', () => {
@@ -355,57 +391,94 @@ describe('authentication HTTP API', () => {
   });
 
   it('preserves the first fixed-window expiry instead of extending it', async () => {
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/signup')
-      .set('Origin', appOrigin)
-      .send(validSignup)
-      .expect(201);
-    const redis = app.get<Redis>(REDIS);
-    const [, keys] = await redis.scan(
-      '0',
-      'MATCH',
-      'easygenerator:test:auth-rate-limit:signup:ip:*',
-    );
-    expect(keys).toHaveLength(1);
-    const key = keys[0];
-    if (key === undefined) throw new Error('Signup rate-limit key is missing');
-    const firstTtl = await redis.ttl(key);
+    const trustedIpSentinel = '198.51.100.23';
+    const expressApp = expressApplication(app);
+    const previousTrustProxy = expressApp.get('trust proxy');
+    expressApp.set('trust proxy', 1);
+    try {
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/signup')
+        .set('Origin', appOrigin)
+        .set('X-Forwarded-For', trustedIpSentinel)
+        .send(validSignup)
+        .expect(201);
+      const redis = app.get<Redis>(REDIS);
+      const keys = await scanKeys(
+        redis,
+        'easygenerator:test:rate-limit:auth:signup:ip:*',
+      );
+      expect(keys).toEqual([
+        `easygenerator:test:rate-limit:auth:signup:ip:${privacyDigest(
+          'auth:signup:ip',
+          trustedIpSentinel,
+        )}`,
+      ]);
+      expect(keys[0]).not.toContain(trustedIpSentinel);
+      const key = keys[0];
+      if (key === undefined)
+        throw new Error('Signup rate-limit key is missing');
+      const firstTtl = await redis.ttl(key);
 
-    await delay(1_100);
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/signup')
-      .set('Origin', appOrigin)
-      .send({ ...validSignup, email: 'grace@example.com' })
-      .expect(201);
+      await delay(1_100);
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/signup')
+        .set('Origin', appOrigin)
+        .set('X-Forwarded-For', trustedIpSentinel)
+        .send({ ...validSignup, email: 'grace@example.com' })
+        .expect(201);
 
-    expect(await redis.ttl(key)).toBeLessThan(firstTtl);
+      expect(await redis.ttl(key)).toBeLessThan(firstTtl);
+    } finally {
+      expressApp.set('trust proxy', previousTrustProxy);
+    }
   });
 
   it('returns Retry-After when the HMAC identity window is blocked', async () => {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await request(app.getHttpServer())
+    const trustedIpSentinel = '198.51.100.24';
+    const expressApp = expressApplication(app);
+    const previousTrustProxy = expressApp.get('trust proxy');
+    expressApp.set('trust proxy', 1);
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await request(app.getHttpServer())
+          .post('/api/v1/auth/signin')
+          .set('Origin', appOrigin)
+          .set('X-Forwarded-For', trustedIpSentinel)
+          .send({ email: 'missing@example.com', password: 'Incorrect1!' })
+          .expect(401);
+      }
+
+      const blocked = await request(app.getHttpServer())
         .post('/api/v1/auth/signin')
         .set('Origin', appOrigin)
+        .set('X-Forwarded-For', trustedIpSentinel)
         .send({ email: 'missing@example.com', password: 'Incorrect1!' })
-        .expect(401);
+        .expect(429);
+      expect(blocked.body).toMatchObject({ code: 'RATE_LIMITED', status: 429 });
+      expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+      expect(Number(blocked.headers['retry-after'])).toBeLessThanOrEqual(900);
+
+      const keys = await scanKeys(
+        app.get<Redis>(REDIS),
+        'easygenerator:test:rate-limit:auth:signin:*',
+      );
+      expect(keys).toEqual(
+        [
+          `easygenerator:test:rate-limit:auth:signin:identity:${privacyDigest(
+            'auth:signin:identity',
+            'missing@example.com',
+          )}`,
+          `easygenerator:test:rate-limit:auth:signin:ip:${privacyDigest(
+            'auth:signin:ip',
+            trustedIpSentinel,
+          )}`,
+        ].sort(),
+      );
+      expect(JSON.stringify(keys)).not.toContain('missing@example.com');
+      expect(JSON.stringify(keys)).not.toContain(trustedIpSentinel);
+    } finally {
+      expressApp.set('trust proxy', previousTrustProxy);
     }
-
-    const blocked = await request(app.getHttpServer())
-      .post('/api/v1/auth/signin')
-      .set('Origin', appOrigin)
-      .send({ email: 'missing@example.com', password: 'Incorrect1!' })
-      .expect(429);
-    expect(blocked.body).toMatchObject({ code: 'RATE_LIMITED', status: 429 });
-    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
-    expect(Number(blocked.headers['retry-after'])).toBeLessThanOrEqual(900);
-
-    const redis = app.get<Redis>(REDIS);
-    const [, rawIdentityKeys] = await redis.scan(
-      '0',
-      'MATCH',
-      '*missing@example.com*',
-    );
-    expect(rawIdentityKeys).toEqual([]);
   });
 
   it('returns 503 for signup and signin when Redis protection is unavailable', async () => {
