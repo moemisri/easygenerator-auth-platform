@@ -22,6 +22,40 @@ describe('SignUpForm', () => {
     ).toBeVisible();
   });
 
+  it('shows every password rule and rejects a password longer than 128 characters', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SignUpForm />);
+    const password = screen.getByLabelText(/^password$/i);
+    const rules = [
+      'At least 8 characters',
+      'At most 128 characters',
+      'One letter',
+      'One number',
+      'One special character',
+    ];
+    await user.type(password, `A1!${'a'.repeat(125)}`);
+    for (const rule of rules) {
+      expect(screen.getByText(rule)).toHaveAttribute('data-met', 'true');
+    }
+    await user.type(password, 'a');
+    await user.click(screen.getByRole('button', { name: /create account/i }));
+    expect(
+      await screen.findByText('Use at most 128 characters.'),
+    ).toBeVisible();
+  });
+
+  it('keeps the visibility toggle separate from the label and describes password requirements', () => {
+    renderWithApp(<SignUpForm />);
+    const password = screen.getByLabelText(/^password$/i);
+    const toggle = screen.getByRole('button', { name: /show password/i });
+    expect(toggle.closest('label')).toBeNull();
+    expect(toggle).toHaveClass('password-toggle');
+    expect(password).toHaveAttribute(
+      'aria-describedby',
+      expect.stringContaining('password-requirements'),
+    );
+  });
+
   it('exposes schema validation descriptions for invalid email and name', async () => {
     const user = userEvent.setup();
     renderWithApp(<SignUpForm />);

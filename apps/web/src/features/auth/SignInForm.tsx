@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { signinSchema, type SigninInput } from '@easygenerator/contracts';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ApiProblem } from '../../lib/api-client';
 import { Button } from '../../components/Button';
 import { Field } from '../../components/Field';
@@ -63,7 +63,7 @@ export function SignInForm() {
         Sign in
       </Button>
       <p className="form-switch">
-        New here? <a href="/signup">Create an account</a>
+        New here? <Link to="/signup">Create an account</Link>
       </p>
     </form>
   );

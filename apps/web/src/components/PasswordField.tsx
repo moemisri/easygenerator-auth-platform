@@ -2,22 +2,26 @@ import { useState, type InputHTMLAttributes } from 'react';
 export function PasswordField({
   label = 'Password',
   error,
+  describedBy,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label?: string | undefined;
   error?: string | undefined;
+  describedBy?: string | undefined;
 }) {
   const [visible, setVisible] = useState(false);
   const id = props.id ?? props.name ?? 'password';
-  const description = `${id}-description`;
+  const description = [describedBy, error ? `${id}-description` : undefined]
+    .filter(Boolean)
+    .join(' ');
   return (
-    <label className="field" htmlFor={id}>
-      <span>{label}</span>
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
       <span className="password-input">
         <input
           id={id}
           type={visible ? 'text' : 'password'}
-          aria-describedby={error ? description : undefined}
+          aria-describedby={description || undefined}
           aria-invalid={Boolean(error)}
           {...props}
         />
@@ -30,7 +34,7 @@ export function PasswordField({
           {visible ? 'Hide' : 'Show'}
         </button>
       </span>
-      {error && <small id={description}>{error}</small>}
-    </label>
+      {error && <small id={`${id}-description`}>{error}</small>}
+    </div>
   );
 }

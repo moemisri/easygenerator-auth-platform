@@ -1,7 +1,8 @@
 import { Button } from '../components/Button';
+import { ProblemAlert } from '../components/ProblemAlert';
 import { useAuth } from '../features/auth/AuthProvider';
 export function ApplicationPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, logoutError } = useAuth();
   return (
     <main className="application-page">
       <header>
@@ -13,6 +14,7 @@ export function ApplicationPage() {
         </nav>
       </header>
       <section>
+        {logoutError && <ProblemAlert message={logoutError} />}
         <p className="eyebrow">Signed in as {user?.email}</p>
         <h1>Welcome to the application.</h1>
         <p>

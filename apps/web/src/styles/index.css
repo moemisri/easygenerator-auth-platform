@@ -140,7 +140,8 @@ a {
   position: absolute;
   right: 0.25rem;
   top: 0.25rem;
-  min-height: 36px;
+  min-height: 44px;
+  min-width: 44px;
   border: 0;
   background: transparent;
   color: var(--indigo-deep);

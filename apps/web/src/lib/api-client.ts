@@ -1,3 +1,8 @@
+import {
+  problemDetailsSchema,
+  type FieldError,
+} from '@easygenerator/contracts';
+
 export class ApiProblem extends Error {
   constructor(
     public readonly status: number,
@@ -5,6 +10,9 @@ export class ApiProblem extends Error {
     public readonly code?: string,
     public readonly requestId?: string,
     public readonly retryAfter?: number,
+    public readonly detail?: string,
+    public readonly instance?: string,
+    public readonly fields?: FieldError[],
   ) {
     super(title);
   }
@@ -61,13 +69,17 @@ export const apiClient = {
     const response = await fetch(path, request);
     const payload = await responseBody(response);
     if (!response.ok) {
-      const problem = payload as Record<string, unknown> | undefined;
+      const parsedProblem = problemDetailsSchema.safeParse(payload);
+      const problem = parsedProblem.success ? parsedProblem.data : undefined;
       throw new ApiProblem(
         response.status,
         typeof problem?.title === 'string' ? problem.title : 'Request failed',
         typeof problem?.code === 'string' ? problem.code : undefined,
         typeof problem?.requestId === 'string' ? problem.requestId : undefined,
         retryAfterSeconds(response.headers.get('Retry-After')),
+        problem?.detail,
+        problem?.instance,
+        problem?.fields,
       );
     }
     if (!schema) return undefined as T;

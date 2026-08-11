@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { signupSchema, type SignupInput } from '@easygenerator/contracts';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ApiProblem } from '../../lib/api-client';
 import { Button } from '../../components/Button';
 import { Field } from '../../components/Field';
@@ -12,6 +12,7 @@ import { useAuth } from './AuthProvider';
 
 const rules = [
   ['At least 8 characters', (value: string) => value.length >= 8],
+  ['At most 128 characters', (value: string) => value.length <= 128],
   ['One letter', (value: string) => /[A-Za-z]/.test(value)],
   ['One number', (value: string) => /[0-9]/.test(value)],
   ['One special character', (value: string) => /[^A-Za-z0-9]/.test(value)],
@@ -67,9 +68,14 @@ export function SignUpForm() {
         label="Password"
         autoComplete="new-password"
         error={errors.password?.message}
+        describedBy="password-requirements"
         {...register('password')}
       />
-      <ul className="password-rules" aria-label="Password requirements">
+      <ul
+        id="password-requirements"
+        className="password-rules"
+        aria-label="Password requirements"
+      >
         {rules.map(([label, passes]) => (
           <li key={label} data-met={passes(password)}>
             {label}
@@ -80,7 +86,7 @@ export function SignUpForm() {
         Create account
       </Button>
       <p className="form-switch">
-        Already have access? <a href="/signin">Sign in</a>
+        Already have access? <Link to="/signin">Sign in</Link>
       </p>
     </form>
   );

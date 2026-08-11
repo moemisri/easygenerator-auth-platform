@@ -35,6 +35,35 @@ describe('apiClient', () => {
     );
   });
 
+  it('preserves validated problem detail context for form feedback', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: 'https://example.test/problems/invalid-input',
+          title: 'Invalid input',
+          status: 400,
+          detail: 'Use a valid email address.',
+          instance: '/api/v1/auth/signup',
+          code: 'VALIDATION_FAILED',
+          requestId: 'req-2',
+          fields: [{ field: 'email', message: 'Enter a valid email address.' }],
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/problem+json' },
+        },
+      ),
+    );
+
+    await expect(
+      apiClient.request('/api/v1/auth/signup', authSessionResponseSchema),
+    ).rejects.toMatchObject({
+      detail: 'Use a valid email address.',
+      instance: '/api/v1/auth/signup',
+      fields: [{ field: 'email', message: 'Enter a valid email address.' }],
+    });
+  });
+
   it('rejects an invalid successful response rather than trusting malformed JSON', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ unexpected: true }), { status: 200 }),
@@ -64,6 +93,24 @@ describe('apiClient', () => {
     expect(
       new Headers(fetchSpy.mock.calls[0]?.[1]?.headers).get('X-CSRF-Token'),
     ).toBe('token');
+  });
+
+  it('omits CSRF headers from reads and anonymous mutations', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    await apiClient.request('/api/v1/auth/session', undefined, {
+      csrfToken: 'token',
+    });
+    await apiClient.request('/api/v1/auth/signin', undefined, {
+      method: 'POST',
+    });
+    expect(
+      new Headers(fetchSpy.mock.calls[0]?.[1]?.headers).has('X-CSRF-Token'),
+    ).toBe(false);
+    expect(
+      new Headers(fetchSpy.mock.calls[1]?.[1]?.headers).has('X-CSRF-Token'),
+    ).toBe(false);
   });
 
   it('does not retry a failed sign-in mutation', async () => {
