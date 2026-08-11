@@ -189,6 +189,16 @@ describe('SessionService', () => {
     await expect(service.resolve(rawTokenFixture)).resolves.toBeNull();
   });
 
+  it('rejects a session whose persisted user status is unexpected', async () => {
+    await service.create(userId);
+    currentUser = {
+      ...activeUser,
+      status: 'PENDING',
+    } as unknown as SafeUser;
+
+    await expect(service.resolve(rawTokenFixture)).resolves.toBeNull();
+  });
+
   it('returns null when no session matches the digest', async () => {
     await expect(service.resolve(rawTokenFixture)).resolves.toBeNull();
     expect(repository.lastLookupDigest).toBe(tokenDigestFixture);

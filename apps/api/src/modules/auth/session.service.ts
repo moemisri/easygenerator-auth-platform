@@ -79,7 +79,7 @@ export class SessionService {
     }
 
     const user = await this.users.findSafeById(session.userId);
-    if (user === null || user.status === 'DISABLED') return null;
+    if (user === null || user.status !== 'ACTIVE') return null;
     return { sessionId: session.id, user };
   }
 
