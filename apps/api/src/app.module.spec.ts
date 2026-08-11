@@ -46,6 +46,7 @@ describe('AppModule platform wiring', () => {
 
     let mongoPings = 0;
     let mongoCloses = 0;
+    const mongoModels: Record<string, unknown> = {};
     const mongoConnection = {
       db: {
         admin: () => ({
@@ -58,6 +59,12 @@ describe('AppModule platform wiring', () => {
       close: async () => {
         mongoCloses += 1;
       },
+      model: (name: string) => {
+        const model = { modelName: name };
+        mongoModels[name] = model;
+        return model;
+      },
+      models: mongoModels,
     };
     let redisPings = 0;
     let redisDisconnects = 0;

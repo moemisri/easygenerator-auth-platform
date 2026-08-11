@@ -3,6 +3,8 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PinoLogger } from 'nestjs-pino';
 
+import { AuditModule } from './modules/audit/audit.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { configuration } from './platform/config/configuration';
 import { APP_ORIGIN, OriginGuard } from './platform/http/origin.guard';
@@ -21,6 +23,8 @@ import {
       validate: configuration,
     }),
     LoggingModule,
+    AuditModule,
+    AuthModule,
     HealthModule,
   ],
   providers: [
