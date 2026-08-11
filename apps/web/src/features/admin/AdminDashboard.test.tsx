@@ -341,6 +341,57 @@ describe('AdminDashboard', () => {
     );
   });
 
+  it('locks a successful action through delayed refresh and focuses the refreshed trigger', async () => {
+    let userReads = 0;
+    let patchRequests = 0;
+    const refreshedUsers = deferred<HttpResponse<UserPage>>();
+    renderAdmin({
+      sessionUser: { ...actor, id: 'admin-1', role: 'ADMIN' },
+      users: () => {
+        userReads += 1;
+        return userReads === 1
+          ? HttpResponse.json(userPage())
+          : refreshedUsers.promise;
+      },
+    });
+    server.use(
+      http.patch('/api/v1/admin/users/:id', () => {
+        patchRequests += 1;
+        return HttpResponse.json({ ...ada, status: 'DISABLED', version: 4 });
+      }),
+    );
+    const user = userEvent.setup();
+
+    await screen.findAllByText('Ada Lovelace');
+    const trigger = screen.getAllByRole('button', {
+      name: "Disable Ada Lovelace's account",
+    })[0]!;
+    await user.click(trigger);
+    await user.click(screen.getByRole('button', { name: 'Disable account' }));
+
+    await waitFor(() => expect(userReads).toBe(2));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(trigger);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-disabled', 'true');
+    expect(patchRequests).toBe(1);
+
+    await act(async () => {
+      refreshedUsers.resolve(
+        HttpResponse.json(
+          userPage([{ ...ada, status: 'DISABLED', version: 4 }]),
+        ),
+      );
+      await refreshedUsers.promise;
+    });
+    expect((await screen.findAllByText('DISABLED'))[0]).toBeVisible();
+    const refreshedTrigger = screen.getAllByRole('button', {
+      name: "Enable Ada Lovelace's account",
+    })[0]!;
+    await waitFor(() => expect(refreshedTrigger).toHaveFocus());
+    expect(patchRequests).toBe(1);
+  });
+
   it('announces stale recovery only after refreshed v4 renders and keeps sensible focus', async () => {
     let userReads = 0;
     let auditReads = 0;
@@ -378,11 +429,10 @@ describe('AdminDashboard', () => {
     const user = userEvent.setup();
 
     await screen.findAllByText('Ada Lovelace');
-    await user.click(
-      screen.getAllByRole('button', {
-        name: "Disable Ada Lovelace's account",
-      })[0]!,
-    );
+    const trigger = screen.getAllByRole('button', {
+      name: "Disable Ada Lovelace's account",
+    })[0]!;
+    await user.click(trigger);
     await user.click(screen.getByRole('button', { name: 'Disable account' }));
 
     await waitFor(() => expect(userReads).toBe(2));
@@ -392,6 +442,9 @@ describe('AdminDashboard', () => {
       ),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(trigger);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-disabled', 'true');
     expect(patchRequests).toBe(1);
 
     await act(async () => {
@@ -413,6 +466,69 @@ describe('AdminDashboard', () => {
       ),
     ).toBeVisible();
     expect(auditReads).toBe(2);
+    expect(patchRequests).toBe(1);
+  });
+
+  it('keeps a stale refresh failure visible without announcing freshness or replaying', async () => {
+    let userReads = 0;
+    let patchRequests = 0;
+    const failedRefresh =
+      deferred<HttpResponse<{ title: string; status: number }>>();
+    renderAdmin({
+      sessionUser: { ...actor, id: 'admin-1', role: 'ADMIN' },
+      users: () => {
+        userReads += 1;
+        return userReads === 1
+          ? HttpResponse.json(userPage())
+          : failedRefresh.promise;
+      },
+    });
+    server.use(
+      http.patch('/api/v1/admin/users/:id', () => {
+        patchRequests += 1;
+        return HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'User changed',
+            status: 409,
+            code: 'STALE_USER_VERSION',
+            requestId: 'request-stale-refresh-failure',
+          },
+          { status: 409 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+
+    await screen.findAllByText('Ada Lovelace');
+    await user.click(
+      screen.getAllByRole('button', {
+        name: "Disable Ada Lovelace's account",
+      })[0]!,
+    );
+    await user.click(screen.getByRole('button', { name: 'Disable account' }));
+    await waitFor(() => expect(userReads).toBe(2));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await act(async () => {
+      failedRefresh.resolve(
+        HttpResponse.json(
+          { title: 'Directory unavailable', status: 503 },
+          { status: 503 },
+        ),
+      );
+      await failedRefresh.promise;
+    });
+    expect(
+      await screen.findByText('Unable to load users. Please retry.'),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retry users' })).toBeVisible();
+    expect(screen.getAllByText('Ada Lovelace')[0]).toBeVisible();
+    expect(
+      screen.queryByText(
+        'Ada Lovelace changed elsewhere. The latest record is now loaded.',
+      ),
+    ).not.toBeInTheDocument();
     expect(patchRequests).toBe(1);
   });
 

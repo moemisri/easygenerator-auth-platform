@@ -107,7 +107,7 @@ export function UserActionDialog({
   });
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && mutation.isPending) return;
+    if (mutation.isPending) return;
     setOpen(nextOpen);
     if (nextOpen) {
       setError(null);
@@ -119,7 +119,11 @@ export function UserActionDialog({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Trigger asChild>
-        <Button type="button" className="button-secondary">
+        <Button
+          type="button"
+          className="button-secondary"
+          aria-disabled={mutation.isPending || undefined}
+        >
           {triggerLabel}
         </Button>
       </Dialog.Trigger>

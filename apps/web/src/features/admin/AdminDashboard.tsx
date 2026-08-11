@@ -1,4 +1,8 @@
-import type { AdminUsersQuery, SafeUser } from '@easygenerator/contracts';
+import type {
+  AdminUsersQuery,
+  SafeUser,
+  UserPage,
+} from '@easygenerator/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -8,7 +12,11 @@ import { ProblemAlert } from '../../components/ProblemAlert';
 import { useAuth } from '../auth/AuthProvider';
 import { AuditTimeline } from './AuditTimeline';
 import { UserTable } from './UserTable';
-import { useAdminAuditEvents, useAdminUsers } from './use-admin-users';
+import {
+  adminQueryKeys,
+  useAdminAuditEvents,
+  useAdminUsers,
+} from './use-admin-users';
 
 const PAGE_SIZE = 20;
 const DEFAULT_SORT = 'createdAt';
@@ -40,18 +48,27 @@ export function AdminDashboard() {
   const recoverStaleUser = useCallback(
     async (target: SafeUser) => {
       setStaleNotice(null);
-      const userRefresh = queryClient.invalidateQueries({
-        queryKey: ['admin', 'users'],
-      });
       void queryClient.invalidateQueries({
         queryKey: ['admin', 'audit-events'],
       });
-      await userRefresh;
+      const usersKey = adminQueryKeys.users(query);
+      try {
+        await queryClient.invalidateQueries(
+          { queryKey: usersKey, exact: true },
+          { throwOnError: true },
+        );
+      } catch {
+        return;
+      }
+      const refreshedTarget = queryClient
+        .getQueryData<UserPage>(usersKey)
+        ?.items.find((user) => user.id === target.id);
+      if (!refreshedTarget || refreshedTarget.version <= target.version) return;
       setStaleNotice(
         `${target.name} changed elsewhere. The latest record is now loaded.`,
       );
     },
-    [queryClient],
+    [query, queryClient],
   );
 
   useEffect(() => {

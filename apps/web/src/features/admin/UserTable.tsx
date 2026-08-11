@@ -1,5 +1,5 @@
 import type { Role, SafeUser } from '@easygenerator/contracts';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { UserActionDialog } from './UserActionDialog';
 
@@ -42,7 +42,12 @@ function UserControls({
   onStaleRecovery: (target: SafeUser) => Promise<void>;
 }) {
   const roles = assignableRoles(actor, target);
-  const [role, setRole] = useState<Role | undefined>(roles[0]);
+  const defaultRole = roles[0];
+  const [role, setRole] = useState<Role | undefined>(defaultRole);
+
+  useEffect(() => {
+    setRole(defaultRole);
+  }, [defaultRole, target.version]);
 
   if (!canManageUser(actor, target) || !role) return null;
 
@@ -131,7 +136,6 @@ export function UserTable({
                 {hasActions && (
                   <td>
                     <UserControls
-                      key={user.version}
                       actor={actor}
                       target={user}
                       csrfToken={csrfToken}
@@ -172,7 +176,6 @@ export function UserTable({
               </div>
             </dl>
             <UserControls
-              key={user.version}
               actor={actor}
               target={user}
               csrfToken={csrfToken}
