@@ -60,9 +60,17 @@ async function waitForRedis(redis: Redis): Promise<void> {
 
 describe('authentication HTTP API', () => {
   let app: NestExpressApplication;
+  let failingAuditApp: NestExpressApplication;
 
   beforeAll(async () => {
     app = await createTestApp();
+    failingAuditApp = await createTestApp({
+      auditService: {
+        record: async () => {
+          throw new Error('forced downstream audit failure');
+        },
+      },
+    });
   });
 
   beforeEach(async () => {
@@ -70,6 +78,7 @@ describe('authentication HTTP API', () => {
   });
 
   afterAll(async () => {
+    await failingAuditApp?.close();
     await app?.close();
   });
 
@@ -159,6 +168,30 @@ describe('authentication HTTP API', () => {
     expect(conflict?.body).toMatchObject({
       code: 'EMAIL_ALREADY_REGISTERED',
       status: 409,
+    });
+  });
+
+  it('rolls back user and session writes when signup audit fails', async () => {
+    const response = await request(failingAuditApp.getHttpServer())
+      .post('/api/v1/auth/signup')
+      .set('Origin', appOrigin)
+      .send(validSignup)
+      .expect(500);
+    expect(response.body).toMatchObject({
+      code: 'INTERNAL_ERROR',
+      status: 500,
+    });
+
+    const connection = failingAuditApp.get<Connection>(getConnectionToken());
+    const [users, sessions, auditEvents] = await Promise.all([
+      connection.collection('users').countDocuments(),
+      connection.collection('sessions').countDocuments(),
+      connection.collection('auditevents').countDocuments(),
+    ]);
+    expect({ users, sessions, auditEvents }).toEqual({
+      users: 0,
+      sessions: 0,
+      auditEvents: 0,
     });
   });
 

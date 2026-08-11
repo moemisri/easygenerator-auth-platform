@@ -7,8 +7,6 @@ const repositoryRoot = path.resolve(
   '..',
 );
 const composeArguments = ['compose', '-f', 'compose.test.yaml'];
-const forwardedArguments = process.argv.slice(2);
-if (forwardedArguments[0] === '--') forwardedArguments.shift();
 
 const testEnvironment = {
   ...process.env,
@@ -37,22 +35,40 @@ function run(command, arguments_, environment = process.env) {
   return result.status ?? 1;
 }
 
-let primaryStatus = 1;
-let vitestStarted = false;
-let cleanupStatus = 0;
+export function selectIntegrationExitStatus(
+  setupStatus,
+  vitestStarted,
+  vitestStatus,
+  cleanupStatus,
+) {
+  if (vitestStarted) return vitestStatus;
+  if (setupStatus !== 0) return setupStatus;
+  return cleanupStatus;
+}
 
-try {
-  primaryStatus = run('docker', [...composeArguments, 'up', '--wait']);
-  if (primaryStatus === 0) {
-    primaryStatus = run('docker', [
-      ...composeArguments,
-      'run',
-      '--rm',
-      'mongo-init-test',
-    ]);
-    if (primaryStatus === 0) {
+function main(arguments_ = process.argv.slice(2)) {
+  const forwardedArguments = [...arguments_];
+  if (forwardedArguments[0] === '--') forwardedArguments.shift();
+
+  let setupStatus = 0;
+  let vitestStarted = false;
+  let vitestStatus = 1;
+  let cleanupStatus = 0;
+
+  try {
+    setupStatus = run('docker', [...composeArguments, 'up', '--wait']);
+    if (setupStatus === 0) {
+      setupStatus = run('docker', [
+        ...composeArguments,
+        'run',
+        '--rm',
+        'mongo-init-test',
+      ]);
+    }
+
+    if (setupStatus === 0) {
       vitestStarted = true;
-      primaryStatus = run(
+      vitestStatus = run(
         'pnpm',
         [
           '--filter',
@@ -64,13 +80,28 @@ try {
         testEnvironment,
       );
     }
+  } finally {
+    cleanupStatus = run('docker', [...composeArguments, 'down', '--volumes']);
   }
-} finally {
-  cleanupStatus = run('docker', [...composeArguments, 'down', '--volumes']);
+
+  if (cleanupStatus !== 0) {
+    process.stderr.write(
+      `Integration test environment cleanup failed with status ${cleanupStatus}.\n`,
+    );
+  }
+
+  return selectIntegrationExitStatus(
+    setupStatus,
+    vitestStarted,
+    vitestStatus,
+    cleanupStatus,
+  );
 }
 
-process.exitCode =
-  primaryStatus !== 0 || vitestStarted ? primaryStatus : cleanupStatus;
-if (primaryStatus === 0 && cleanupStatus !== 0) {
-  process.exitCode = cleanupStatus;
+const isMain =
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  process.exitCode = main();
 }

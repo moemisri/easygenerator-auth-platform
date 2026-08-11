@@ -8,6 +8,7 @@ import type { Options } from 'pino-http';
 export const redact = [
   'req.headers.authorization',
   'req.headers.cookie',
+  'req.headers["x-csrf-token"]',
   'req.body.password',
   'req.body.csrfToken',
   'res.headers.set-cookie',

@@ -7,13 +7,26 @@ import { Logger } from 'nestjs-pino';
 
 import { AppModule } from '../../src/app.module';
 import { configureApplication } from '../../src/main';
+import { AuditService } from '../../src/modules/audit/audit.service';
 import type { AppConfig } from '../../src/platform/config/config.schema';
 import { ProblemDetailsFilter } from '../../src/platform/errors/problem-details.filter';
 
-export async function createTestApp(): Promise<NestExpressApplication> {
-  const testingModule = await Test.createTestingModule({
+interface TestAppOverrides {
+  auditService?: Pick<AuditService, 'record'>;
+}
+
+export async function createTestApp(
+  overrides: TestAppOverrides = {},
+): Promise<NestExpressApplication> {
+  const testingModuleBuilder = Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  });
+  if (overrides.auditService !== undefined) {
+    testingModuleBuilder
+      .overrideProvider(AuditService)
+      .useValue(overrides.auditService);
+  }
+  const testingModule = await testingModuleBuilder.compile();
   const app = testingModule.createNestApplication<NestExpressApplication>({
     bodyParser: false,
     bufferLogs: true,
