@@ -4,13 +4,14 @@ import { useAuth } from '../features/auth/AuthProvider';
 import { canViewAdministration } from '../features/auth/PermissionRoute';
 import { Link } from 'react-router-dom';
 export function ApplicationPage() {
-  const { user, logout, logoutError } = useAuth();
+  const { user, features, logout, logoutError } = useAuth();
   return (
     <main className="application-page">
       <header>
         <p className="product-mark">EASYGENERATOR</p>
         <nav aria-label="Application navigation">
           <Link to="/app">Overview</Link>
+          {features?.assistant && <Link to="/assistant">Assistant</Link>}
           {user && canViewAdministration(user.role) && (
             <Link to="/admin">Administration</Link>
           )}

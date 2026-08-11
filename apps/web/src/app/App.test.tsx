@@ -9,7 +9,7 @@ import { authApi } from '../features/auth/auth-api';
 import { createQueryClient } from './query-client';
 import { AppRouter } from './router';
 
-function sessionFor(role: Role) {
+function sessionFor(role: Role, assistant = false) {
   return {
     user: {
       id: `actor-${role.toLowerCase()}`,
@@ -22,17 +22,19 @@ function sessionFor(role: Role) {
       updatedAt: '2026-01-01T00:00:00.000Z',
     },
     csrfToken: 'a'.repeat(32),
-    features: { assistant: false },
+    features: { assistant },
   };
 }
 
-function renderAppAt(path: string, role?: Role) {
+function renderAppAt(path: string, role?: Role, assistant = false) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider
           restoreSession={() =>
-            role ? Promise.resolve(sessionFor(role)) : authApi.session()
+            role
+              ? Promise.resolve(sessionFor(role, assistant))
+              : authApi.session()
           }
         >
           <AppRouter />
@@ -111,6 +113,60 @@ describe('App', () => {
     ).toBeVisible();
     expect(
       screen.queryByRole('heading', { name: 'Administration' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows assistant navigation only when the authenticated feature is enabled', async () => {
+    renderAppAt('/app', 'USER', true);
+
+    await screen.findByText('Welcome to the application.');
+    expect(screen.getByRole('link', { name: 'Assistant' })).toHaveAttribute(
+      'href',
+      '/assistant',
+    );
+  });
+
+  it('does not show assistant navigation when the feature is disabled', async () => {
+    renderAppAt('/app', 'USER', false);
+
+    await screen.findByText('Welcome to the application.');
+    expect(
+      screen.queryByRole('link', { name: 'Assistant' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('protects the assistant route and renders the enabled assistant shell', async () => {
+    renderAppAt('/assistant', 'USER', true);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ask the documentation.' }),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Assistant' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByText('user@example.com')).toBeVisible();
+  });
+
+  it('renders a safe disabled state on direct assistant navigation', async () => {
+    renderAppAt('/assistant', 'USER', false);
+
+    expect(
+      await screen.findByText(/assistant is not enabled for this environment/i),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('textbox', { name: 'Question' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('redirects an anonymous assistant visitor without rendering assistant content', async () => {
+    renderAppAt('/assistant');
+
+    expect(
+      await screen.findByRole('heading', { name: /sign in to continue/i }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: 'Ask the documentation.' }),
     ).not.toBeInTheDocument();
   });
 });

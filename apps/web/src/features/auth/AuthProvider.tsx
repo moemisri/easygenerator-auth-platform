@@ -16,6 +16,7 @@ import {
 } from 'react';
 
 import { ApiProblem } from '../../lib/api-client';
+import { abortAssistantStreams } from '../assistant/assistant-stream-registry';
 import { authApi } from './auth-api';
 
 type AuthStatus = 'restoring' | 'anonymous' | 'authenticated' | 'error';
@@ -23,6 +24,7 @@ type AuthContextValue = {
   status: AuthStatus;
   user: AuthSessionResponse['user'] | null;
   csrfToken: string | null;
+  features: AuthSessionResponse['features'] | null;
   restorationError: string | null;
   logoutError: string | null;
   retrySession: () => void;
@@ -106,6 +108,7 @@ export function AuthProvider({
     [accept],
   );
   const logout = useCallback(async () => {
+    abortAssistantStreams();
     try {
       if (session?.csrfToken) await authApi.logout(session.csrfToken);
     } catch (error) {
@@ -124,6 +127,7 @@ export function AuthProvider({
       status,
       user: session?.user ?? null,
       csrfToken: session?.csrfToken ?? null,
+      features: session?.features ?? null,
       restorationError,
       logoutError,
       retrySession,
