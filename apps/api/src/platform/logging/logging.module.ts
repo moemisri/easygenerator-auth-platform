@@ -5,6 +5,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import type { Options } from 'pino-http';
 
+import { requestPath } from '../http/request-path';
+
 export const redact = [
   'req.headers.authorization',
   'req.headers.cookie',
@@ -25,6 +27,12 @@ type LoggingConfig = {
 };
 
 type RequestWithId = IncomingMessage & { id?: string };
+type RequestForSerialization = {
+  id?: unknown;
+  method?: string;
+  originalUrl?: string;
+  url?: string;
+};
 
 export function createPinoHttpOptions(config: LoggingConfig): Options {
   return {
@@ -34,6 +42,13 @@ export function createPinoHttpOptions(config: LoggingConfig): Options {
       const requestId = (request as RequestWithId).id ?? randomUUID();
       response.setHeader('X-Request-Id', requestId);
       return requestId;
+    },
+    serializers: {
+      req: (request: RequestForSerialization) => ({
+        id: request.id,
+        method: request.method,
+        path: requestPath(request.originalUrl ?? request.url),
+      }),
     },
     ...(config.NODE_ENV === 'production'
       ? {}

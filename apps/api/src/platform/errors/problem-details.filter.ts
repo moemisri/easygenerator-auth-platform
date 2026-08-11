@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
+import { requestPath } from '../http/request-path';
 import { AppError } from './app-error';
 
 const problemTypeBase = 'https://easygenerator.com/problems';
@@ -114,11 +115,10 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       status: (status: number) => { json: (body: ProblemDetails) => void };
     }>();
     const requestId = request.id ?? randomUUID();
-    const requestTarget = request.originalUrl ?? request.url ?? '';
-    const body = mapProblem(exception, requestId, requestTarget || undefined);
+    const path = requestPath(request.originalUrl ?? request.url);
+    const body = mapProblem(exception, requestId, path);
 
-    const requestPath = requestTarget.split('?', 1)[0] ?? '';
-    const normalizedRequestPath = requestPath.toLowerCase();
+    const normalizedRequestPath = path?.toLowerCase() ?? '';
     if (
       normalizedRequestPath.startsWith('/api/v1/auth/') ||
       normalizedRequestPath === '/api/v1/users/me' ||

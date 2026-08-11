@@ -257,6 +257,44 @@ describe('mapProblem', () => {
     },
   );
 
+  it('uses the exact admin path as instance without exposing query data', () => {
+    let cacheControl: string | undefined;
+    let responseBody: unknown;
+    const response = {
+      setHeader: (name: string, value: string) => {
+        if (name === 'Cache-Control') cacheControl = value;
+      },
+      status: () => ({
+        json: (body: unknown) => {
+          responseBody = body;
+        },
+      }),
+    };
+    const host = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          id: 'request-admin-instance',
+          originalUrl:
+            '/api/v1/admin/users/507f1f77bcf86cd799439011?email=problem-instance-sentinel&token=problem-token-sentinel',
+        }),
+        getResponse: () => response,
+      }),
+    } as ArgumentsHost;
+
+    new ProblemDetailsFilter({ error: () => undefined }).catch(
+      new AppError('INSUFFICIENT_CAPABILITY', 403),
+      host,
+    );
+
+    expect(responseBody).toMatchObject({
+      instance: '/api/v1/admin/users/507f1f77bcf86cd799439011',
+    });
+    expect(JSON.stringify(responseBody)).not.toMatch(
+      /problem-instance-sentinel|problem-token-sentinel/u,
+    );
+    expect(cacheControl).toBe('no-store');
+  });
+
   it('sets no-store on assistant errors before SSE starts', () => {
     let cacheControl: string | undefined;
     const response = {
