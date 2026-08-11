@@ -109,6 +109,7 @@ function commandRunner(onChild) {
 
 export async function runE2ePlan(plan) {
   let activeChild;
+  let cleanupStarted = false;
   let requestedSignal;
   const run = commandRunner((child) => {
     activeChild = child;
@@ -118,7 +119,7 @@ export async function runE2ePlan(plan) {
   for (const signalName of ['SIGINT', 'SIGTERM']) {
     const handler = () => {
       requestedSignal ??= signalName;
-      if (activeChild !== undefined) {
+      if (!cleanupStarted && activeChild !== undefined) {
         terminateProcessGroup(activeChild, signalName);
       }
     };
@@ -153,6 +154,7 @@ export async function runE2ePlan(plan) {
     if (!playwrightStarted) setupTermination = exit(1);
     else playwrightTermination = playwrightTermination ?? exit(1);
   } finally {
+    cleanupStarted = true;
     cleanupTermination = await run(plan.cleanup);
     for (const [signalName, handler] of handlers) {
       process.off(signalName, handler);

@@ -145,21 +145,32 @@ it('preserves real subprocess status while cleanup cannot mask Playwright', asyn
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  it(`cleans up and re-signals itself when ${signal} arrives during cleanup`, async () => {
+  it(`does not forward ${signal} to cleanup, waits for cleanup, then re-signals itself`, async () => {
     const child = await spawnHarness({
       setup: 'process.exit(0)',
       playwright: 'process.exit(0)',
-      cleanup:
-        "process.stdout.write('cleanup-ready\\n'); setInterval(() => undefined, 1_000)",
+      cleanup: `
+        process.on(${JSON.stringify(signal)}, () => {
+          process.stdout.write('cleanup-received-parent-signal\\n');
+        });
+        process.stdout.write('cleanup-started\\n');
+        setTimeout(() => {
+          process.stdout.write('cleanup-complete\\n');
+          process.exit(0);
+        }, 150);
+      `,
     });
     const completion = completed(child);
-    await waitForOutput(child, 'cleanup-ready');
+    await waitForOutput(child, 'cleanup-started');
     child.kill(signal);
 
-    await expect(completion).resolves.toMatchObject({
+    const result = await completion;
+    expect(result).toMatchObject({
       status: null,
       signal,
     });
+    expect(result.stdout).toContain('cleanup-complete');
+    expect(result.stdout).not.toContain('cleanup-received-parent-signal');
   }, 10_000);
 }
 
