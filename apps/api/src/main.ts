@@ -10,6 +10,7 @@ import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
 import type { AppConfig } from './platform/config/config.schema';
+import { DatabaseIndexInitializer } from './platform/database/database-index-initializer';
 import { ProblemDetailsFilter } from './platform/errors/problem-details.filter';
 import { configureOpenApi } from './platform/http/openapi';
 import { RequestIdMiddleware } from './platform/http/request-id.middleware';
@@ -84,6 +85,23 @@ export function configureApplication(
   app.enableShutdownHooks();
 }
 
+interface StartupApplication {
+  get(
+    token: typeof DatabaseIndexInitializer,
+  ): Pick<DatabaseIndexInitializer, 'ensureSecurityCriticalIndexes'>;
+  init(): Promise<unknown>;
+  listen(port: number): Promise<unknown>;
+}
+
+export async function initializeAndListen(
+  app: StartupApplication,
+  port: number,
+): Promise<void> {
+  await app.init();
+  await app.get(DatabaseIndexInitializer).ensureSecurityCriticalIndexes();
+  await app.listen(port);
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
@@ -99,7 +117,7 @@ async function bootstrap() {
     },
     app.get(ProblemDetailsFilter),
   );
-  await app.listen(config.get('PORT', { infer: true }));
+  await initializeAndListen(app, config.get('PORT', { infer: true }));
 }
 
 if (process.env.VITEST !== 'true') {

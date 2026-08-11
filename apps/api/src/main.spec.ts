@@ -2,9 +2,10 @@ import { Body, Controller, Get, Module, Post, Req } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { configureApplication } from './main';
+import { configureApplication, initializeAndListen } from './main';
+import { DatabaseIndexInitializer } from './platform/database/database-index-initializer';
 import { ProblemDetailsFilter } from './platform/errors/problem-details.filter';
 
 type BoundaryRequest = {
@@ -42,6 +43,63 @@ class BoundaryController {
 
 @Module({ controllers: [BoundaryController] })
 class BoundaryModule {}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+describe('initializeAndListen', () => {
+  it('initializes the app and security indexes before starting its listener', async () => {
+    const order: string[] = [];
+    const indexesReady = deferred();
+    const initializer = {
+      ensureSecurityCriticalIndexes: vi.fn(async () => {
+        order.push('indexes');
+        await indexesReady.promise;
+      }),
+    };
+    const app = {
+      get: vi.fn(() => initializer),
+      init: vi.fn(async () => {
+        order.push('app.init');
+      }),
+      listen: vi.fn(async () => {
+        order.push('app.listen');
+      }),
+    };
+
+    const startup = initializeAndListen(app, 3000);
+    await vi.waitFor(() => expect(order).toEqual(['app.init', 'indexes']));
+    expect(app.get).toHaveBeenCalledWith(DatabaseIndexInitializer);
+    expect(app.listen).not.toHaveBeenCalled();
+
+    indexesReady.resolve();
+    await startup;
+
+    expect(order).toEqual(['app.init', 'indexes', 'app.listen']);
+    expect(app.listen).toHaveBeenCalledWith(3000);
+  });
+
+  it('does not create a listener when security index readiness fails', async () => {
+    const failure = new Error('security indexes unavailable');
+    const initializer = {
+      ensureSecurityCriticalIndexes: vi.fn().mockRejectedValue(failure),
+    };
+    const app = {
+      get: vi.fn(() => initializer),
+      init: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await expect(initializeAndListen(app, 3000)).rejects.toBe(failure);
+
+    expect(app.listen).not.toHaveBeenCalled();
+  });
+});
 
 describe('configureApplication', () => {
   let app: NestExpressApplication;

@@ -9,6 +9,7 @@ import { AppModule } from '../../src/app.module';
 import { configureApplication } from '../../src/main';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import type { AppConfig } from '../../src/platform/config/config.schema';
+import { DatabaseIndexInitializer } from '../../src/platform/database/database-index-initializer';
 import { ProblemDetailsFilter } from '../../src/platform/errors/problem-details.filter';
 
 interface TestAppOverrides {
@@ -47,6 +48,6 @@ export async function createTestApp(
     await app.close();
     throw new Error(`Refusing to test against database ${connection.name}`);
   }
-  await connection.syncIndexes();
+  await app.get(DatabaseIndexInitializer).ensureSecurityCriticalIndexes();
   return app;
 }

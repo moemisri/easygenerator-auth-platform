@@ -3,6 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 
+import { DatabaseIndexInitializer } from './database-index-initializer';
+
 export const DATABASE_HEALTH = Symbol('DATABASE_HEALTH');
 
 export interface DependencyHealthAdapter {
@@ -23,6 +25,7 @@ export interface DependencyHealthAdapter {
     }),
   ],
   providers: [
+    DatabaseIndexInitializer,
     {
       provide: DATABASE_HEALTH,
       inject: [getConnectionToken()],
@@ -36,6 +39,6 @@ export interface DependencyHealthAdapter {
       }),
     },
   ],
-  exports: [DATABASE_HEALTH],
+  exports: [DATABASE_HEALTH, DatabaseIndexInitializer],
 })
 export class DatabaseModule {}

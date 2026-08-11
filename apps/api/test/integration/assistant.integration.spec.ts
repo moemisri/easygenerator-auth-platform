@@ -33,6 +33,7 @@ import {
 import { GOOGLE_GENAI_FACTORY } from '../../src/modules/assistant/gemini.provider';
 import type { AppConfig } from '../../src/platform/config/config.schema';
 import { configuration } from '../../src/platform/config/configuration';
+import { DatabaseIndexInitializer } from '../../src/platform/database/database-index-initializer';
 import { ProblemDetailsFilter } from '../../src/platform/errors/problem-details.filter';
 import { REDIS } from '../../src/platform/redis/redis.constants';
 import { resetDatastores } from '../support/reset-datastores';
@@ -248,7 +249,7 @@ async function createAssistantApp(
     await app.close();
     throw new Error(`Refusing to test against database ${connection.name}`);
   }
-  await connection.syncIndexes();
+  await app.get(DatabaseIndexInitializer).ensureSecurityCriticalIndexes();
   return app;
 }
 
