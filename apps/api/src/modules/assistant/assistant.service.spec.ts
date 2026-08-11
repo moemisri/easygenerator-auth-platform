@@ -450,31 +450,54 @@ describe('AssistantService', () => {
     );
   });
 
-  it('enforces the deadline even when the provider ignores abort', async () => {
-    const iterator = {
-      next: vi.fn(() => new Promise<IteratorResult<string>>(() => undefined)),
-      return: vi.fn(async () => ({ done: true as const, value: undefined })),
-    };
+  it('bounds native iterator cleanup when return queues behind a stalled next call', async () => {
+    const nextStarted = deferred<void>();
+    const allowNext = deferred<void>();
+    let iteratorFinalized = false;
+    const iterator = (async function* () {
+      try {
+        nextStarted.resolve();
+        await allowNext.promise;
+        yield await Promise.reject<string>(
+          new Error('private late next rejection'),
+        );
+      } finally {
+        iteratorFinalized = true;
+      }
+    })();
+    const returnIterator = vi.spyOn(iterator, 'return');
     let providerSignal: AbortSignal | undefined;
     const dependencies = createService({
       deadlineMilliseconds: 20,
       provider: {
         stream: (_input, signal) => {
           providerSignal = signal;
-          return iterableFrom(iterator);
+          return iterator;
         },
       },
     });
     const response = new StreamResponse();
-
-    await dependencies.service.chat(
+    const pending = dependencies.service.chat(
       input,
       context,
       new RequestEvents(),
       response,
     );
+    await nextStarted.promise;
 
-    expect(events(response).at(-1)).toEqual({
+    const settledWithinBound = await Promise.race([
+      pending.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 250)),
+    ]);
+    const finalizedBeforeUnstall = iteratorFinalized;
+    const eventsBeforeUnstall = events(response);
+    const endCallsBeforeUnstall = response.endCalls;
+    allowNext.resolve();
+    await pending;
+    await vi.waitFor(() => expect(iteratorFinalized).toBe(true));
+
+    expect(settledWithinBound).toBe(true);
+    expect(eventsBeforeUnstall.at(-1)).toEqual({
       type: 'error',
       data: {
         code: 'ASSISTANT_TIMEOUT',
@@ -482,16 +505,15 @@ describe('AssistantService', () => {
       },
     });
     expect(
-      events(response).some(
+      eventsBeforeUnstall.some(
         (event) => (event as { type: string }).type === 'done',
       ),
     ).toBe(false);
+    expect(endCallsBeforeUnstall).toBe(1);
     expect(providerSignal?.aborted).toBe(true);
-    expect(iterator.return).toHaveBeenCalledOnce();
-    expect(iterator.return.mock.invocationCallOrder[0]).toBeLessThan(
-      dependencies.release.mock.invocationCallOrder[0]!,
-    );
-    expect(dependencies.release).toHaveBeenCalledOnce();
+    expect(returnIterator).toHaveBeenCalledOnce();
+    expect(finalizedBeforeUnstall).toBe(false);
+    expect(dependencies.release).not.toHaveBeenCalled();
   });
 
   it('awaits disconnect iterator finalization before releasing its lease', async () => {
@@ -531,6 +553,53 @@ describe('AssistantService', () => {
     expect(iterator.return.mock.invocationCallOrder[0]).toBeLessThan(
       dependencies.release.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('bounds disconnect cleanup and retains the lease when native return stays queued', async () => {
+    const nextStarted = deferred<void>();
+    const allowNext = deferred<void>();
+    let iteratorFinalized = false;
+    const iterator = (async function* () {
+      try {
+        nextStarted.resolve();
+        await allowNext.promise;
+        yield 'must not be written';
+      } finally {
+        iteratorFinalized = true;
+        await Promise.reject(new Error('private late return rejection'));
+      }
+    })();
+    const returnIterator = vi.spyOn(iterator, 'return');
+    const dependencies = createService({
+      provider: { stream: () => iterator },
+    });
+    const response = new StreamResponse();
+    const pending = dependencies.service.chat(
+      input,
+      context,
+      new RequestEvents(),
+      response,
+    );
+    await nextStarted.promise;
+
+    response.disconnect();
+    const settledWithinBound = await Promise.race([
+      pending.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 250)),
+    ]);
+    const finalizedBeforeUnstall = iteratorFinalized;
+    allowNext.resolve();
+    await pending;
+    await vi.waitFor(() => expect(iteratorFinalized).toBe(true));
+
+    expect(settledWithinBound).toBe(true);
+    expect(returnIterator).toHaveBeenCalledOnce();
+    expect(finalizedBeforeUnstall).toBe(false);
+    expect(
+      events(response).map((event) => (event as { type: string }).type),
+    ).toEqual(['sources']);
+    expect(response.endCalls).toBe(0);
+    expect(dependencies.release).not.toHaveBeenCalled();
   });
 
   it('keeps the lease for TTL cleanup when iterator finalization cannot be confirmed', async () => {

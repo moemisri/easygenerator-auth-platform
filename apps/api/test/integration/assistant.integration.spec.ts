@@ -56,8 +56,12 @@ class FakeAssistantProvider implements AssistantProvider {
   abortObserved = false;
   private startedResolve!: () => void;
   private holdResolve!: () => void;
+  private stallResolve!: () => void;
+  private stalledFinalizedResolve!: () => void;
   started = Promise.resolve();
   private hold = Promise.resolve();
+  private stall = Promise.resolve();
+  stalledFinalized = Promise.resolve();
 
   reset(): void {
     this.calls = [];
@@ -68,10 +72,20 @@ class FakeAssistantProvider implements AssistantProvider {
     this.hold = new Promise<void>((resolve) => {
       this.holdResolve = resolve;
     });
+    this.stall = new Promise<void>((resolve) => {
+      this.stallResolve = resolve;
+    });
+    this.stalledFinalized = new Promise<void>((resolve) => {
+      this.stalledFinalizedResolve = resolve;
+    });
   }
 
   releaseHeldStream(): void {
     this.holdResolve();
+  }
+
+  releaseStalledStream(): void {
+    this.stallResolve();
   }
 
   stream(
@@ -123,6 +137,18 @@ class FakeAssistantProvider implements AssistantProvider {
           );
         });
         yield 'must not reach the disconnected client';
+      })();
+    }
+    if (currentMessage.includes('stalled')) {
+      const stall = this.stall;
+      const markFinalized = this.stalledFinalizedResolve;
+      return (async function* () {
+        try {
+          await stall;
+          yield 'must not reach the timed-out client';
+        } finally {
+          markFinalized();
+        }
       })();
     }
     if (currentMessage.includes('contention')) {
@@ -477,6 +503,38 @@ describe('assistant HTTP API', () => {
     });
     expect(JSON.stringify(failure)).not.toContain('private fake provider body');
     expect(failure.some((event) => event.type === 'done')).toBe(false);
+  });
+
+  it('retains a stalled native stream lease until real Redis expiry', async () => {
+    const signedIn = await signUp(app);
+    const timeout = parseSse((await chat(signedIn, 'sessions stalled')).text);
+    expect(timeout.at(-1)).toEqual({
+      type: 'error',
+      data: {
+        code: 'ASSISTANT_TIMEOUT',
+        message: 'The assistant timed out. Please try again.',
+      },
+    });
+
+    const redis = app.get<Redis>(REDIS);
+    const leaseKey = `easygenerator:test:assistant:active:${signedIn.userId}`;
+    expect(await redis.ttl(leaseKey)).toBeGreaterThan(0);
+    const protectedRequest = await chat(
+      signedIn,
+      'sessions architecture',
+    ).expect(429);
+    expect(protectedRequest.body.code).toBe('ASSISTANT_STREAM_IN_PROGRESS');
+
+    provider.releaseStalledStream();
+    await provider.stalledFinalized;
+    expect(await redis.exists(leaseKey)).toBe(1);
+    await redis.pexpire(leaseKey, 50);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if ((await redis.exists(leaseKey)) === 0) break;
+      await delay(10);
+    }
+    expect(await redis.exists(leaseKey)).toBe(0);
+    await chat(signedIn, 'sessions architecture').expect(200);
   });
 
   it('aborts and releases on disconnect so a later stream can start', async () => {
