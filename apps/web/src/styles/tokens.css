@@ -1,0 +1,14 @@
+:root {
+  --paper: #f1efe9;
+  --surface: #fbfaf6;
+  --ink: #171a22;
+  --muted: #62646b;
+  --indigo: #4b50a2;
+  --indigo-deep: #303574;
+  --line: #d8d4ca;
+  --danger: #a33a3a;
+  --success: #287154;
+  --radius: 12px;
+  --sans: 'Avenir Next', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

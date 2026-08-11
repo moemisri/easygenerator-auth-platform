@@ -1,7 +1,289 @@
-:root {
-  font-family: system-ui, sans-serif;
+@import './tokens.css';
+* {
+  box-sizing: border-box;
 }
-
 body {
   margin: 0;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--sans);
+}
+button,
+input {
+  font: inherit;
+}
+a {
+  color: var(--indigo-deep);
+  font-weight: 700;
+}
+:focus-visible {
+  outline: 3px solid var(--indigo);
+  outline-offset: 3px;
+}
+.access-layout {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 42fr 58fr;
+}
+.trust-panel {
+  background: var(--ink);
+  color: var(--surface);
+  padding: clamp(2rem, 6vw, 6rem);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 3rem;
+}
+.product-mark,
+.eyebrow {
+  font: 600 0.71rem/1.4 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.trust-panel .product-mark {
+  color: #b9bbe5;
+}
+.trust-panel h2 {
+  max-width: 10ch;
+  font-size: clamp(2.3rem, 4.4vw, 4.8rem);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+  margin: 1rem 0;
+}
+.trust-panel p:not(.product-mark) {
+  max-width: 30rem;
+  color: #d0d1d5;
+  line-height: 1.6;
+}
+.verification-rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  counter-reset: rail;
+}
+.verification-rail li {
+  counter-increment: rail;
+  display: grid;
+  grid-template-columns: 2.75rem 1fr;
+  align-items: center;
+  color: #d7d8df;
+  font-weight: 650;
+}
+.verification-rail li::before {
+  content: counter(rail, decimal-leading-zero);
+  font: 600 0.71rem var(--mono);
+  color: #aeb2ea;
+}
+.verification-rail li:not(:last-child)::after {
+  content: '';
+  grid-column: 1;
+  width: 1px;
+  height: 1.25rem;
+  background: #535869;
+  margin: 1.7rem 0 -1.7rem 0.95rem;
+}
+.form-surface {
+  background: var(--surface);
+  display: grid;
+  align-items: center;
+  padding: clamp(2rem, 8vw, 9rem);
+}
+.auth-form {
+  width: min(100%, 31rem);
+  animation: enter 0.18s ease-out;
+}
+.form-header {
+  margin-bottom: 2rem;
+}
+.form-header .eyebrow {
+  color: var(--indigo-deep);
+}
+.form-header h1 {
+  margin: 0.65rem 0 0.75rem;
+  font-size: clamp(2rem, 3.6vw, 3.5rem);
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+.form-header p:not(.eyebrow),
+.form-switch {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.field {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1.25rem 0;
+  font-weight: 700;
+}
+.field input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 0.7rem 0.85rem;
+  color: var(--ink);
+}
+.field small {
+  color: var(--danger);
+  font-weight: 500;
+}
+.password-input {
+  position: relative;
+}
+.password-input input {
+  padding-right: 5rem;
+}
+.password-toggle {
+  position: absolute;
+  right: 0.25rem;
+  top: 0.25rem;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--indigo-deep);
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.button {
+  min-height: 44px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  background: var(--indigo-deep);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+.button:hover {
+  background: var(--indigo);
+}
+.button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.problem-alert {
+  margin: 1rem 0;
+  border-left: 4px solid var(--danger);
+  background: #f7e9e7;
+  padding: 0.8rem 1rem;
+  color: #741f1f;
+}
+.password-rules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0;
+  margin: 0 0 1.4rem;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.password-rules li::before {
+  content: '○ ';
+  color: var(--muted);
+}
+.password-rules li[data-met='true'] {
+  color: var(--success);
+}
+.password-rules li[data-met='true']::before {
+  content: '✓ ';
+  color: var(--success);
+}
+.form-switch {
+  text-align: center;
+  font-size: 0.9rem;
+  margin-top: 1.5rem;
+}
+.loading-screen,
+.not-found,
+.application-page {
+  min-height: 100dvh;
+  padding: clamp(2rem, 7vw, 7rem);
+}
+.loading-screen {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.application-page {
+  background: var(--surface);
+}
+.application-page header {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1rem;
+}
+.application-page nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.application-page nav .button {
+  width: auto;
+}
+.application-page section {
+  margin-top: 15vh;
+}
+.application-page h1 {
+  font-size: clamp(2.3rem, 5vw, 5rem);
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+.role-badge {
+  display: inline-block;
+  color: var(--success);
+  font: 700 0.75rem var(--mono);
+}
+.not-found {
+  display: grid;
+  place-content: center;
+  gap: 1rem;
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 720px) {
+  .access-layout {
+    display: block;
+  }
+  .trust-panel {
+    display: none;
+  }
+  .form-surface {
+    min-height: 100dvh;
+    padding: 2rem 1.25rem;
+  }
+  .password-rules {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+  .application-page header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .application-page nav {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

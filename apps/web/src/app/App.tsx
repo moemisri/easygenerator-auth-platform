@@ -1,3 +1,9 @@
+import { AuthProvider } from '../features/auth/AuthProvider';
+import { AppRouter } from './router';
 export function App() {
-  return <h1>Secure access</h1>;
+  return (
+    <AuthProvider>
+      <AppRouter />
+    </AuthProvider>
+  );
 }
