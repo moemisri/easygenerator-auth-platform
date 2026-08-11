@@ -496,29 +496,43 @@ describe('AssistantChat', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
     const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
     server.use(
       http.post('/api/v1/assistant/chat', () =>
         sseResponse(
-          sourceEvent +
-            'event: delta\ndata: {"text":"Completed answer"}\n\n' +
-            doneEvent,
+          new ReadableStream<Uint8Array>({
+            start(value) {
+              controller = value;
+            },
+          }),
         ),
       ),
     );
     renderChat();
 
     await ask('How are sessions protected?');
-    expect(await screen.findByText('Completed answer')).toBeVisible();
-    await waitFor(() =>
-      expect(screen.getByRole('status')).toHaveTextContent('Answer complete'),
-    );
-
     const deadlineIndex = setTimeoutSpy.mock.calls.findIndex(
       ([, delay]) => delay === 30_000,
     );
     expect(deadlineIndex).toBeGreaterThanOrEqual(0);
     const deadline = setTimeoutSpy.mock.results[deadlineIndex]?.value;
+    clearTimeoutSpy.mockClear();
+
+    await act(async () => {
+      controller.enqueue(encoder.encode(sourceEvent));
+      controller.enqueue(
+        encoder.encode('event: delta\ndata: {"text":"Completed answer"}\n\n'),
+      );
+      controller.enqueue(encoder.encode(doneEvent));
+      controller.close();
+    });
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
     expect(clearTimeoutSpy).toHaveBeenCalledWith(deadline);
+
+    expect(await screen.findByText('Completed answer')).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Answer complete'),
+    );
   });
 
   it('sends only the six most recent completed messages as history', async () => {

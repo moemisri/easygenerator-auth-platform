@@ -48,6 +48,20 @@ type StreamError = {
 };
 
 type AbortReason = 'stop' | 'timeout' | 'logout' | 'unmount';
+type StateTransition =
+  | 'assistant-disabled'
+  | 'assistant-enabled'
+  | 'request-delta'
+  | 'request-sources'
+  | 'request-started'
+  | 'request-settled'
+  | 'request-stopping';
+type CleanupResource = 'deadline' | 'registration';
+
+export type AssistantLifecycleObserver = {
+  onStateTransition?: (transition: StateTransition) => void;
+  onResourceCleanup?: (resource: CleanupResource) => void;
+};
 
 type Completion =
   | {
@@ -137,10 +151,12 @@ export function useAssistantStream({
   csrfToken,
   enabled,
   interactionLocked,
+  lifecycleObserver,
 }: {
   csrfToken: string | null;
   enabled: boolean;
   interactionLocked: boolean;
+  lifecycleObserver?: AssistantLifecycleObserver;
 }) {
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [attempt, setAttempt] = useState<ActiveAttempt | null>(null);
@@ -157,21 +173,38 @@ export function useAssistantStream({
   const activeControllerRef = useRef<AbortController | null>(null);
   const abortReasonRef = useRef<AbortReason | undefined>(undefined);
   const mountedRef = useRef(false);
+  const lifecycleObserverRef = useRef(lifecycleObserver);
+  lifecycleObserverRef.current = lifecycleObserver;
 
-  const abortActive = useCallback((reason: AbortReason) => {
-    const controller = activeControllerRef.current;
-    if (!controller || controller.signal.aborted) return;
-    abortReasonRef.current = reason;
-    controller.abort();
-    if (!mountedRef.current || reason === 'unmount') return;
-    setStatus('stopping');
-    setLiveStatus(
-      reason === 'timeout'
-        ? 'Stopping timed-out request.'
-        : 'Stopping generation.',
-    );
-    setError(null);
-  }, []);
+  const dispatchState = useCallback(
+    (transition: StateTransition, update: () => void) => {
+      if (!mountedRef.current) return false;
+      update();
+      lifecycleObserverRef.current?.onStateTransition?.(transition);
+      return true;
+    },
+    [],
+  );
+
+  const abortActive = useCallback(
+    (reason: AbortReason) => {
+      const controller = activeControllerRef.current;
+      if (!controller || controller.signal.aborted) return;
+      abortReasonRef.current = reason;
+      controller.abort();
+      if (reason === 'unmount') return;
+      dispatchState('request-stopping', () => {
+        setStatus('stopping');
+        setLiveStatus(
+          reason === 'timeout'
+            ? 'Stopping timed-out request.'
+            : 'Stopping generation.',
+        );
+        setError(null);
+      });
+    },
+    [dispatchState],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -183,14 +216,18 @@ export function useAssistantStream({
 
   useEffect(() => {
     if (enabled) {
-      setStatus((current) => (current === 'disabled' ? 'idle' : current));
+      dispatchState('assistant-enabled', () => {
+        setStatus((current) => (current === 'disabled' ? 'idle' : current));
+      });
       return;
     }
     abortActive('logout');
-    setStatus('disabled');
-    setLiveStatus('Assistant unavailable.');
-    setError(null);
-  }, [abortActive, enabled]);
+    dispatchState('assistant-disabled', () => {
+      setStatus('disabled');
+      setLiveStatus('Assistant unavailable.');
+      setError(null);
+    });
+  }, [abortActive, dispatchState, enabled]);
 
   const send = useCallback(
     async (rawQuestion: string) => {
@@ -207,14 +244,20 @@ export function useAssistantStream({
       }
 
       const controller = new AbortController();
-      activeControllerRef.current = controller;
-      abortReasonRef.current = undefined;
-      setRequestActive(true);
-      setLastQuestion(question);
-      setAttempt({ question, answer: '', sources: [] });
-      setError(null);
-      setStatus('streaming');
-      setLiveStatus('Answer in progress.');
+      if (
+        !dispatchState('request-started', () => {
+          activeControllerRef.current = controller;
+          abortReasonRef.current = undefined;
+          setRequestActive(true);
+          setLastQuestion(question);
+          setAttempt({ question, answer: '', sources: [] });
+          setError(null);
+          setStatus('streaming');
+          setLiveStatus('Answer in progress.');
+        })
+      ) {
+        return false;
+      }
       const unregister = registerAssistantStream(() => abortActive('logout'));
       const deadline = window.setTimeout(
         () => abortActive('timeout'),
@@ -236,7 +279,7 @@ export function useAssistantStream({
         for await (const event of parseEventStream(body)) {
           if (event.type === 'sources') {
             sources = event.data.sources;
-            if (mountedRef.current) {
+            dispatchState('request-sources', () => {
               setAttempt((current) =>
                 current ? { ...current, sources: event.data.sources } : current,
               );
@@ -245,7 +288,7 @@ export function useAssistantStream({
                   ? 'Sources available. Answer in progress.'
                   : 'Documentation checked.',
               );
-            }
+            });
           } else if (event.type === 'delta') {
             if (
               event.data.text.length >
@@ -254,11 +297,11 @@ export function useAssistantStream({
               throw new AssistantProtocolError();
             }
             answer += event.data.text;
-            if (mountedRef.current) {
+            dispatchState('request-delta', () => {
               setAttempt((current) =>
                 current ? { ...current, answer } : current,
               );
-            }
+            });
           } else {
             terminal = event;
           }
@@ -291,67 +334,72 @@ export function useAssistantStream({
         }
       } finally {
         window.clearTimeout(deadline);
+        lifecycleObserverRef.current?.onResourceCleanup?.('deadline');
         unregister();
+        lifecycleObserverRef.current?.onResourceCleanup?.('registration');
         if (activeControllerRef.current === controller) {
           activeControllerRef.current = null;
         }
         abortReasonRef.current = undefined;
       }
 
-      if (!mountedRef.current || !completion) return true;
-      setRequestActive(false);
+      if (!completion) return true;
+      const settledCompletion = completion;
+      dispatchState('request-settled', () => {
+        setRequestActive(false);
 
-      if (completion.kind === 'done') {
-        const refused = completion.outcome === 'refused';
-        const completedAnswer = refused
-          ? ASSISTANT_REFUSAL_MESSAGE
-          : completion.answer;
-        const nextTurns = boundTurns([
-          ...turnsRef.current,
-          {
-            question,
-            answer: completedAnswer,
-            sources: completion.sources,
-            outcome: completion.outcome,
-          },
-        ]);
-        turnsRef.current = nextTurns;
-        setTurns(nextTurns);
-        setAttempt(null);
-        setStatus(refused ? 'refused' : 'complete');
-        setLiveStatus(refused ? 'Question refused.' : 'Answer complete.');
-      } else if (completion.kind === 'server-error') {
-        setStatus('error');
-        setLiveStatus('Assistant request failed.');
-        setError({ message: completion.message });
-      } else if (completion.kind === 'disabled') {
-        setAttempt(null);
-        setStatus('disabled');
-        setLiveStatus('Assistant unavailable.');
-        setError(null);
-      } else if (completion.kind === 'failed') {
-        setStatus('error');
-        setLiveStatus('Assistant request failed.');
-        setError(completion.error);
-      } else if (completion.reason !== 'unmount') {
-        if (completion.reason === 'timeout') {
+        if (settledCompletion.kind === 'done') {
+          const refused = settledCompletion.outcome === 'refused';
+          const completedAnswer = refused
+            ? ASSISTANT_REFUSAL_MESSAGE
+            : settledCompletion.answer;
+          const nextTurns = boundTurns([
+            ...turnsRef.current,
+            {
+              question,
+              answer: completedAnswer,
+              sources: settledCompletion.sources,
+              outcome: settledCompletion.outcome,
+            },
+          ]);
+          turnsRef.current = nextTurns;
+          setTurns(nextTurns);
+          setAttempt(null);
+          setStatus(refused ? 'refused' : 'complete');
+          setLiveStatus(refused ? 'Question refused.' : 'Answer complete.');
+        } else if (settledCompletion.kind === 'server-error') {
           setStatus('error');
           setLiveStatus('Assistant request failed.');
-          setError({
-            message:
-              'The assistant took too long to respond. Please try again.',
-          });
-        } else {
-          setStatus('stopped');
-          setLiveStatus('Generation stopped.');
-          setError({
-            message: 'Generation stopped. You can retry the question.',
-          });
+          setError({ message: settledCompletion.message });
+        } else if (settledCompletion.kind === 'disabled') {
+          setAttempt(null);
+          setStatus('disabled');
+          setLiveStatus('Assistant unavailable.');
+          setError(null);
+        } else if (settledCompletion.kind === 'failed') {
+          setStatus('error');
+          setLiveStatus('Assistant request failed.');
+          setError(settledCompletion.error);
+        } else if (settledCompletion.reason !== 'unmount') {
+          if (settledCompletion.reason === 'timeout') {
+            setStatus('error');
+            setLiveStatus('Assistant request failed.');
+            setError({
+              message:
+                'The assistant took too long to respond. Please try again.',
+            });
+          } else {
+            setStatus('stopped');
+            setLiveStatus('Generation stopped.');
+            setError({
+              message: 'Generation stopped. You can retry the question.',
+            });
+          }
         }
-      }
+      });
       return true;
     },
-    [abortActive, csrfToken, enabled, interactionLocked],
+    [abortActive, csrfToken, dispatchState, enabled, interactionLocked],
   );
 
   return {
