@@ -100,14 +100,14 @@ describe('administration HTTP API', () => {
 
   it('denies USER, allows SUPPORT reads, and keeps SUPPORT read-only', async () => {
     const unauthenticated = await request(app.getHttpServer())
-      .get('/api/v1/admin/users')
+      .get('/API/V1/ADMIN/USERS')
       .expect(401);
     expect(unauthenticated.body.code).toBe('UNAUTHENTICATED');
     expect(unauthenticated.headers['cache-control']).toBe('no-store');
 
     const basic = await signUp('basic@example.com', 'Basic User');
     const basicDenied = await basic.agent
-      .get('/api/v1/admin/users')
+      .get('/API/V1/ADMIN/USERS')
       .expect(403);
     expect(basicDenied.body.code).toBe('INSUFFICIENT_CAPABILITY');
     expect(basicDenied.headers['cache-control']).toBe('no-store');
@@ -160,6 +160,30 @@ describe('administration HTTP API', () => {
       expect(denied.body.code).toBe('TARGET_UPDATE_FORBIDDEN');
       expect(denied.headers['cache-control']).toBe('no-store');
     }
+  });
+
+  it('validates admin user IDs before persistence lookup', async () => {
+    const admin = await signUp('admin@example.com', 'Admin User');
+    await setRole('admin@example.com', 'ADMIN');
+
+    const malformed = await patchUser(admin, 'not-an-object-id', {
+      version: 0,
+      status: 'DISABLED',
+    });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      fields: [expect.objectContaining({ field: 'id' })],
+    });
+    expect(malformed.headers['cache-control']).toBe('no-store');
+
+    const absent = await patchUser(admin, '507f1f77bcf86cd799439099', {
+      version: 0,
+      status: 'DISABLED',
+    });
+    expect(absent.status).toBe(404);
+    expect(absent.body.code).toBe('USER_NOT_FOUND');
+    expect(absent.headers['cache-control']).toBe('no-store');
   });
 
   it('allows ADMIN privileged changes, forbids self-edit, and makes stale writes atomic', async () => {
@@ -349,15 +373,16 @@ describe('administration HTTP API', () => {
     await setRole('admin@example.com', 'ADMIN');
 
     const missingOrigin = await request(app.getHttpServer())
-      .patch(`/api/v1/admin/users/${target.user.id}`)
+      .patch(`/API/V1/ADMIN/USERS/${target.user.id}`)
       .set('Cookie', admin.cookie)
       .set('X-CSRF-Token', admin.csrfToken)
       .send({ version: 0, role: 'SUPPORT' });
     expect(missingOrigin.status).toBe(403);
+    expect(missingOrigin.body.code).toBe('HTTP_403');
     expect(missingOrigin.headers['cache-control']).toBe('no-store');
 
     const missingCsrf = await request(app.getHttpServer())
-      .patch(`/api/v1/admin/users/${target.user.id}`)
+      .patch(`/API/V1/ADMIN/USERS/${target.user.id}`)
       .set('Origin', appOrigin)
       .set('Cookie', admin.cookie)
       .send({ version: 0, role: 'SUPPORT' });
@@ -371,7 +396,7 @@ describe('administration HTTP API', () => {
     }).then((response) => expect(response.status).toBe(200));
   });
 
-  it('serializes two concurrent active-admin removals and leaves one active admin', async () => {
+  it('serializes duplicate concurrent active-admin removals and leaves one active admin', async () => {
     const first = await signUp('first-admin@example.com', 'First Admin');
     const second = await signUp('second-admin@example.com', 'Second Admin');
     await setRole('first-admin@example.com', 'ADMIN');
@@ -382,15 +407,16 @@ describe('administration HTTP API', () => {
 
     const responses = await Promise.all([
       patchUser(first, second.user.id, { version: 0, status: 'DISABLED' }),
-      patchUser(second, first.user.id, { version: 0, status: 'DISABLED' }),
+      patchUser(first, second.user.id, { version: 0, status: 'DISABLED' }),
     ]);
 
     expect(
       responses.filter((response) => response.status === 200),
     ).toHaveLength(1);
-    expect(responses.filter((response) => response.status >= 400)).toHaveLength(
-      1,
-    );
+    const rejected = responses.filter((response) => response.status !== 200);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.status).toBe(409);
+    expect(rejected[0]?.body.code).toBe('STALE_USER_VERSION');
     expect(
       await connection.collection('users').countDocuments({
         role: 'ADMIN',

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   adminAuditEventsQuerySchema,
   adminAuditEventsResponseSchema,
+  adminUserIdParamsSchema,
   adminUsersQuerySchema,
   adminUsersResponseSchema,
   updateAdminUserSchema,
@@ -24,6 +25,9 @@ describe('adminUsersQuerySchema', () => {
     [{ pageSize: '0' }, 'pageSize'],
     [{ pageSize: '51' }, 'pageSize'],
     [{ search: 'x'.repeat(101) }, 'search'],
+    [{ search: 'Ada\u0000Lovelace' }, 'search'],
+    [{ search: 'Ada\nLovelace' }, 'search'],
+    [{ search: 'Ada\u007fLovelace' }, 'search'],
     [{ sort: 'passwordHash' }, 'sort'],
     [{ direction: 'sideways' }, 'direction'],
     [{ unexpected: 'value' }, 'request'],
@@ -51,6 +55,33 @@ describe('adminUsersQuerySchema', () => {
       sort: 'email',
       direction: 'asc',
     });
+  });
+});
+
+describe('adminUserIdParamsSchema', () => {
+  it.each(['507f1f77bcf86cd799439011', '507F1F77BCF86CD799439011'])(
+    'accepts an exact 24-character hexadecimal user ID',
+    (id) => {
+      expect(adminUserIdParamsSchema.parse({ id })).toEqual({ id });
+    },
+  );
+
+  it.each([
+    '507f1f77bcf86cd79943901',
+    '507f1f77bcf86cd7994390110',
+    '507f1f77bcf86cd79943901g',
+    '',
+  ])('rejects malformed user ID %j', (id) => {
+    expect(adminUserIdParamsSchema.safeParse({ id }).success).toBe(false);
+  });
+
+  it('rejects unknown route parameters', () => {
+    expect(
+      adminUserIdParamsSchema.safeParse({
+        id: '507f1f77bcf86cd799439011',
+        unexpected: 'value',
+      }).success,
+    ).toBe(false);
   });
 });
 

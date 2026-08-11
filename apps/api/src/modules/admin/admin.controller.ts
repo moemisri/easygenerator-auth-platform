@@ -10,6 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  adminUserIdParamsSchema,
+  type AdminUserIdParams,
   adminUsersQuerySchema,
   type AdminUsersQuery,
   type SafeUser,
@@ -36,6 +38,11 @@ class AdminUsersQueryDto implements AdminUsersQuery {
   direction!: AdminUsersQuery['direction'];
 }
 
+class AdminUserIdParamsDto implements AdminUserIdParams {
+  static readonly schema = adminUserIdParamsSchema;
+  id!: string;
+}
+
 class UpdateAdminUserBody implements UpdateUserInput {
   static readonly schema = updateAdminUserSchema;
   version!: number;
@@ -60,12 +67,12 @@ export class AdminController {
   @RequireCapability('MANAGE_BASIC_USERS')
   @Header('Cache-Control', 'no-store')
   update(
-    @Param('id') targetId: string,
+    @Param() params: AdminUserIdParamsDto,
     @Body() body: UpdateAdminUserBody,
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
     @Req() request: AuthenticatedHttpRequest,
   ): Promise<SafeUser> {
-    return this.admin.updateUser(principal.user, targetId, body, {
+    return this.admin.updateUser(principal.user, params.id, body, {
       requestId: request.id,
     });
   }

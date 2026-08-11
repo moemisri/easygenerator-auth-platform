@@ -118,10 +118,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const body = mapProblem(exception, requestId, requestTarget || undefined);
 
     const requestPath = requestTarget.split('?', 1)[0] ?? '';
+    const normalizedRequestPath = requestPath.toLowerCase();
     if (
-      requestPath.startsWith('/api/v1/auth/') ||
-      requestPath === '/api/v1/users/me' ||
-      requestPath.startsWith('/api/v1/admin/')
+      normalizedRequestPath.startsWith('/api/v1/auth/') ||
+      normalizedRequestPath === '/api/v1/users/me' ||
+      normalizedRequestPath.startsWith('/api/v1/admin/')
     ) {
       response.setHeader?.('Cache-Control', 'no-store');
     }

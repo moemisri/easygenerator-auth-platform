@@ -15,12 +15,26 @@ const queryInteger = (minimum: number, maximum?: number) =>
 
 export const adminUserSortSchema = z.enum(['createdAt', 'name', 'email']);
 export const sortDirectionSchema = z.enum(['asc', 'desc']);
+export const adminUserIdParamsSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(/^[0-9a-f]{24}$/i, 'Enter a valid 24-character user ID.'),
+  })
+  .strict();
 
 export const adminUsersQuerySchema = z
   .object({
     page: queryInteger(1).default(1),
     pageSize: queryInteger(1, 50).default(20),
-    search: z.string().trim().max(100).optional(),
+    search: z
+      .string()
+      .trim()
+      .max(100)
+      .refine((value) => !/\p{Cc}/u.test(value), {
+        message: 'Search must not contain control characters.',
+      })
+      .optional(),
     sort: adminUserSortSchema.default('createdAt'),
     direction: sortDirectionSchema.default('desc'),
   })
@@ -91,6 +105,7 @@ export const adminAuditEventsResponseSchema = z
 
 export type AdminUserSort = z.infer<typeof adminUserSortSchema>;
 export type SortDirection = z.infer<typeof sortDirectionSchema>;
+export type AdminUserIdParams = z.infer<typeof adminUserIdParamsSchema>;
 export type AdminUsersQuery = z.infer<typeof adminUsersQuerySchema>;
 export type UpdateUserInput = z.infer<typeof updateAdminUserSchema>;
 export type UserPage = z.infer<typeof adminUsersResponseSchema>;
