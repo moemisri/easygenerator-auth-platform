@@ -18,6 +18,7 @@ import {
 import { ApiProblem } from '../../lib/api-client';
 import { abortAssistantStreams } from '../assistant/assistant-stream-registry';
 import { authApi } from './auth-api';
+import { subscribeToAuthExpiry } from './auth-expiry';
 
 type AuthStatus = 'restoring' | 'anonymous' | 'authenticated' | 'error';
 type AuthContextValue = {
@@ -65,6 +66,21 @@ export function AuthProvider({
   const [restorationAttempt, setRestorationAttempt] = useState(0);
   const restorationGeneration = useRef(0);
   const logoutInFlight = useRef(false);
+  const clearExpiredAuthentication = useCallback(() => {
+    restorationGeneration.current += 1;
+    restoration = undefined;
+    abortAssistantStreams();
+    setSession(null);
+    setRestorationError(null);
+    setLogoutError(null);
+    setStatus('anonymous');
+    void queryClient.cancelQueries();
+    queryClient.clear();
+  }, [queryClient]);
+  useEffect(
+    () => subscribeToAuthExpiry(clearExpiredAuthentication),
+    [clearExpiredAuthentication],
+  );
   useEffect(() => {
     let active = true;
     const generation = restorationGeneration.current;
@@ -78,8 +94,7 @@ export function AuthProvider({
       .catch((error: unknown) => {
         if (!active || generation !== restorationGeneration.current) return;
         if (error instanceof ApiProblem && error.status === 401) {
-          setSession(null);
-          setStatus('anonymous');
+          clearExpiredAuthentication();
           return;
         }
         setRestorationError('Unable to restore your session. Please retry.');
@@ -88,7 +103,7 @@ export function AuthProvider({
     return () => {
       active = false;
     };
-  }, [restoreSession, restorationAttempt]);
+  }, [clearExpiredAuthentication, restoreSession, restorationAttempt]);
   const retrySession = useCallback(() => {
     restorationGeneration.current += 1;
     setRestorationError(null);
@@ -125,15 +140,12 @@ export function AuthProvider({
           return;
         }
       }
-      setSession(null);
-      setStatus('anonymous');
-      setLogoutError(null);
-      await queryClient.invalidateQueries();
+      clearExpiredAuthentication();
     } finally {
       logoutInFlight.current = false;
       setIsLoggingOut(false);
     }
-  }, [queryClient, session]);
+  }, [clearExpiredAuthentication, session]);
   const value = useMemo(
     () => ({
       status,

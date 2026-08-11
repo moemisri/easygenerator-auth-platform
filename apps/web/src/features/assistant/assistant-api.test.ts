@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiProblem } from '../../lib/api-client';
 import { server } from '../../test/server';
+import { subscribeToAuthExpiry } from '../auth/auth-expiry';
 import { AssistantProtocolError } from './parse-event-stream';
 import { openAssistantStream } from './assistant-api';
 import { deferred } from '../../test/deferred';
@@ -151,6 +152,45 @@ describe('openAssistantStream', () => {
       });
     },
   );
+
+  it('publishes a pre-stream 401 before rejecting with its parsed problem', async () => {
+    const order: Array<'expiry' | ApiProblem> = [];
+    const unsubscribe = subscribeToAuthExpiry(() => order.push('expiry'));
+    server.use(
+      http.post('/api/v1/assistant/chat', () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Unauthenticated',
+            status: 401,
+            code: 'UNAUTHENTICATED',
+            requestId: 'req-assistant-expired',
+          },
+          { status: 401 },
+        ),
+      ),
+    );
+
+    try {
+      const problem = await openAssistantStream(
+        { message: 'How does authentication work?', history: [] },
+        csrfToken,
+        new AbortController().signal,
+      ).catch((error: ApiProblem) => {
+        order.push(error);
+        return error;
+      });
+
+      expect(problem).toMatchObject({
+        status: 401,
+        code: 'UNAUTHENTICATED',
+        requestId: 'req-assistant-expired',
+      });
+      expect(order).toEqual(['expiry', problem]);
+    } finally {
+      unsubscribe();
+    }
+  });
 
   it.each(['1e2', '+2', '1.5', '01', '0', '-2'])(
     'ignores a non-canonical Retry-After value of %s',

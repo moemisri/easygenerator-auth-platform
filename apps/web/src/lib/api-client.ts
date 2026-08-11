@@ -3,6 +3,8 @@ import {
   type FieldError,
 } from '@easygenerator/contracts';
 
+import { publishAuthExpiry } from '../features/auth/auth-expiry';
+
 export class ApiProblem extends Error {
   constructor(
     public readonly status: number,
@@ -21,6 +23,7 @@ export class ApiProblem extends Error {
 type Schema<T> = { parse: (value: unknown) => T };
 
 type RequestOptions = Omit<RequestInit, 'body' | 'headers'> & {
+  authenticationFailure?: 'expire-session' | 'form-or-restoration';
   body?: unknown;
   csrfToken?: string;
   headers?: HeadersInit;
@@ -49,7 +52,13 @@ export const apiClient = {
     schema: Schema<T> | undefined,
     options: RequestOptions = {},
   ): Promise<T> {
-    const { body, csrfToken, headers: suppliedHeaders, ...init } = options;
+    const {
+      authenticationFailure = 'expire-session',
+      body,
+      csrfToken,
+      headers: suppliedHeaders,
+      ...init
+    } = options;
     const headers = new Headers(suppliedHeaders);
     if (body !== undefined) headers.set('Content-Type', 'application/json');
     const method = init.method ?? 'GET';
@@ -71,7 +80,7 @@ export const apiClient = {
     if (!response.ok) {
       const parsedProblem = problemDetailsSchema.safeParse(payload);
       const problem = parsedProblem.success ? parsedProblem.data : undefined;
-      throw new ApiProblem(
+      const apiProblem = new ApiProblem(
         response.status,
         typeof problem?.title === 'string' ? problem.title : 'Request failed',
         typeof problem?.code === 'string' ? problem.code : undefined,
@@ -81,6 +90,13 @@ export const apiClient = {
         problem?.instance,
         problem?.fields,
       );
+      if (
+        response.status === 401 &&
+        authenticationFailure === 'expire-session'
+      ) {
+        publishAuthExpiry();
+      }
+      throw apiProblem;
     }
     if (!schema) return undefined as T;
     try {

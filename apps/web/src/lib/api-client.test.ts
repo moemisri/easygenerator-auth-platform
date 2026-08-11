@@ -1,6 +1,8 @@
 import { authSessionResponseSchema } from '@easygenerator/contracts';
+import { HttpResponse } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { subscribeToAuthExpiry } from '../features/auth/auth-expiry';
 import { ApiProblem, apiClient } from './api-client';
 
 describe('apiClient', () => {
@@ -124,5 +126,85 @@ describe('apiClient', () => {
       }),
     ).rejects.toMatchObject({ status: 401 });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes a protected 401 before rejecting with its parsed problem', async () => {
+    const order: Array<'expiry' | ApiProblem> = [];
+    const unsubscribe = subscribeToAuthExpiry(() => order.push('expiry'));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Unauthenticated',
+          status: 401,
+          code: 'UNAUTHENTICATED',
+          requestId: 'req-admin',
+        },
+        { status: 401 },
+      ),
+    );
+
+    try {
+      const problem = await apiClient
+        .request('/api/v1/admin/users', undefined)
+        .catch((error: ApiProblem) => {
+          order.push(error);
+          return error;
+        });
+
+      expect(problem).toMatchObject({
+        status: 401,
+        code: 'UNAUTHENTICATED',
+        requestId: 'req-admin',
+      });
+      expect(order).toEqual(['expiry', problem]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('keeps form or restoration 401s local', async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToAuthExpiry(listener);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      HttpResponse.json(
+        {
+          type: 'about:blank',
+          title: 'Invalid credentials',
+          status: 401,
+          code: 'INVALID_CREDENTIALS',
+          requestId: 'req-signin',
+        },
+        { status: 401 },
+      ),
+    );
+
+    try {
+      await expect(
+        apiClient.request('/api/v1/auth/signin', undefined, {
+          authenticationFailure: 'form-or-restoration',
+          method: 'POST',
+        }),
+      ).rejects.toMatchObject({ status: 401, code: 'INVALID_CREDENTIALS' });
+
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('strips the internal authentication-failure policy from fetch', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    await apiClient.request('/api/v1/auth/signin', undefined, {
+      authenticationFailure: 'form-or-restoration',
+      method: 'POST',
+    });
+
+    expect(fetchSpy.mock.calls[0]?.[1]).not.toHaveProperty(
+      'authenticationFailure',
+    );
   });
 });

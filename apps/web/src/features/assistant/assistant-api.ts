@@ -5,6 +5,7 @@ import {
 } from '@easygenerator/contracts';
 
 import { ApiProblem } from '../../lib/api-client';
+import { publishAuthExpiry } from '../auth/auth-expiry';
 import { AssistantProtocolError } from './parse-event-stream';
 
 const MAX_RETRY_AFTER_SECONDS = 300;
@@ -72,7 +73,11 @@ export async function openAssistantStream(
     signal,
   });
 
-  if (!response.ok) throw await parseProblem(response);
+  if (!response.ok) {
+    const problem = await parseProblem(response);
+    if (response.status === 401) publishAuthExpiry();
+    throw problem;
+  }
 
   if (!response.body) {
     throw new AssistantProtocolError();
