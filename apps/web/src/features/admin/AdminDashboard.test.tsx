@@ -4,14 +4,15 @@ import type {
   UserPage,
 } from '@easygenerator/contracts';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse, type HttpResponseResolver } from 'msw';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { AppRouter } from '../../app/router';
 import { createQueryClient } from '../../app/query-client';
+import { deferred } from '../../test/deferred';
 import { AuthProvider } from '../auth/AuthProvider';
 import { server } from '../../test/server';
 
@@ -78,13 +79,31 @@ function auditPage(overrides: Partial<AuditEventPage> = {}): AuditEventPage {
   };
 }
 
+function HistoryControls() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button type="button" onClick={() => void navigate(-1)}>
+        History back
+      </button>
+      <button type="button" onClick={() => void navigate(1)}>
+        History forward
+      </button>
+    </>
+  );
+}
+
 function renderAdmin({
   path = '/admin',
+  historyEntries,
+  historyIndex,
   users = () => HttpResponse.json(userPage()),
   audits = () => HttpResponse.json(auditPage()),
   sessionUser = actor,
 }: {
   path?: string;
+  historyEntries?: string[];
+  historyIndex?: number;
   users?: HttpResponseResolver;
   audits?: HttpResponseResolver;
   sessionUser?: SafeUser;
@@ -93,10 +112,15 @@ function renderAdmin({
     http.get('/api/v1/admin/users', users),
     http.get('/api/v1/admin/audit-events', audits),
   );
+  const queryClient = createQueryClient();
 
-  return render(
-    <QueryClientProvider client={createQueryClient()}>
-      <MemoryRouter initialEntries={[path]}>
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter
+        initialEntries={historyEntries ?? [path]}
+        {...(historyIndex === undefined ? {} : { initialIndex: historyIndex })}
+      >
+        {historyEntries && <HistoryControls />}
         <AuthProvider
           restoreSession={() =>
             Promise.resolve({
@@ -111,6 +135,7 @@ function renderAdmin({
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 describe('AdminDashboard', () => {
@@ -170,6 +195,36 @@ describe('AdminDashboard', () => {
     expect((await screen.findAllByText('Grace Hopper'))[0]).toBeVisible();
     expect(searchAborted).toBe(true);
     expect(requests).toContain('1:Grace');
+  });
+
+  it('syncs search through browser back and forward without a stale debounce rewrite', async () => {
+    const requests: string[] = [];
+    renderAdmin({
+      historyEntries: ['/admin?search=Ada', '/admin?search=Grace'],
+      historyIndex: 1,
+      users: ({ request }) => {
+        const search = new URL(request.url).searchParams.get('search') ?? '';
+        requests.push(search);
+        return HttpResponse.json(
+          userPage(search === 'Grace' ? [grace] : [ada]),
+        );
+      },
+    });
+    const user = userEvent.setup();
+
+    expect((await screen.findAllByText('Grace Hopper'))[0]).toBeVisible();
+    const search = screen.getByRole('searchbox', { name: 'Search users' });
+    expect(search).toHaveValue('Grace');
+
+    await user.click(screen.getByRole('button', { name: 'History back' }));
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(search).toHaveValue('Ada');
+    expect(requests.at(-1)).toBe('Ada');
+
+    await user.click(screen.getByRole('button', { name: 'History forward' }));
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(search).toHaveValue('Grace');
+    expect(requests.at(-1)).toBe('Grace');
   });
 
   it('uses server pagination and disables unavailable directions', async () => {
@@ -252,15 +307,52 @@ describe('AdminDashboard', () => {
     expect(screen.getAllByText('Ada Lovelace')[0]).toBeVisible();
   });
 
-  it('refetches active user and audit queries after stale-version recovery', async () => {
+  it('announces an audit background refresh without replacing loaded events', async () => {
+    let auditReads = 0;
+    const refreshedAudits = deferred<HttpResponse<AuditEventPage>>();
+    const { queryClient } = renderAdmin({
+      audits: () => {
+        auditReads += 1;
+        return auditReads === 1
+          ? HttpResponse.json(auditPage())
+          : refreshedAudits.promise;
+      },
+    });
+
+    expect(await screen.findByText('USER_ROLE_CHANGED')).toBeVisible();
+    void queryClient.invalidateQueries({
+      queryKey: ['admin', 'audit-events'],
+    });
+    await waitFor(() => expect(auditReads).toBe(2));
+    expect(screen.getByText('Updating audit events')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(screen.getByText('USER_ROLE_CHANGED')).toBeVisible();
+
+    await act(async () => {
+      refreshedAudits.resolve(HttpResponse.json(auditPage()));
+      await refreshedAudits.promise;
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Updating audit events'),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('announces stale recovery only after refreshed v4 renders and keeps sensible focus', async () => {
     let userReads = 0;
     let auditReads = 0;
     let patchRequests = 0;
+    const refreshedUsers = deferred<HttpResponse<UserPage>>();
     renderAdmin({
       sessionUser: { ...actor, id: 'admin-1', role: 'ADMIN' },
       users: () => {
         userReads += 1;
-        return HttpResponse.json(userPage());
+        return userReads === 1
+          ? HttpResponse.json(userPage())
+          : refreshedUsers.promise;
       },
       audits: () => {
         auditReads += 1;
@@ -293,15 +385,109 @@ describe('AdminDashboard', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Disable account' }));
 
+    await waitFor(() => expect(userReads).toBe(2));
     expect(
-      await screen.findByText(
+      screen.queryByText(
+        'Ada Lovelace changed elsewhere. The latest record is now loaded.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(patchRequests).toBe(1);
+
+    await act(async () => {
+      refreshedUsers.resolve(
+        HttpResponse.json(
+          userPage([{ ...ada, status: 'DISABLED', version: 4 }]),
+        ),
+      );
+      await refreshedUsers.promise;
+    });
+    expect((await screen.findAllByText('DISABLED'))[0]).toBeVisible();
+    const notice = await screen.findByText(
+      'Ada Lovelace changed elsewhere. The latest record is now loaded.',
+    );
+    expect(notice).toHaveFocus();
+    expect(
+      screen.getByText(
         'Ada Lovelace changed elsewhere. The latest record is now loaded.',
       ),
     ).toBeVisible();
-    await waitFor(() => {
-      expect(userReads).toBe(2);
-      expect(auditReads).toBe(2);
+    expect(auditReads).toBe(2);
+    expect(patchRequests).toBe(1);
+  });
+
+  it('shows a safe conflict immediately and keeps retry blocked when refresh fails later', async () => {
+    let userReads = 0;
+    let patchRequests = 0;
+    const failedRefresh =
+      deferred<HttpResponse<{ title: string; status: number }>>();
+    renderAdmin({
+      sessionUser: { ...actor, id: 'admin-1', role: 'ADMIN' },
+      users: () => {
+        userReads += 1;
+        return userReads === 1
+          ? HttpResponse.json(userPage())
+          : failedRefresh.promise;
+      },
     });
+    server.use(
+      http.patch('/api/v1/admin/users/:id', () => {
+        patchRequests += 1;
+        return HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Conflict',
+            status: 409,
+            code: 'LAST_ACTIVE_ADMIN_PROTECTED',
+            requestId: 'request-last-admin-live',
+          },
+          { status: 409 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+
+    await screen.findAllByText('Ada Lovelace');
+    await user.click(
+      screen.getAllByRole('button', {
+        name: "Disable Ada Lovelace's account",
+      })[0]!,
+    );
+    await user.click(screen.getByRole('button', { name: 'Disable account' }));
+
+    await waitFor(() => expect(userReads).toBe(2));
+    expect(
+      screen.getByText(
+        'The last active administrator cannot be disabled or demoted.',
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Disable account' }),
+    ).toBeDisabled();
+    expect(patchRequests).toBe(1);
+
+    await act(async () => {
+      failedRefresh.resolve(
+        HttpResponse.json(
+          { title: 'Directory unavailable', status: 503 },
+          { status: 503 },
+        ),
+      );
+      await failedRefresh.promise;
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText('Unable to load users. Please retry.'),
+      ).toBeVisible(),
+    );
+    expect(
+      screen.getByText(
+        'The last active administrator cannot be disabled or demoted.',
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Disable account' }),
+    ).toBeDisabled();
     expect(patchRequests).toBe(1);
   });
 });

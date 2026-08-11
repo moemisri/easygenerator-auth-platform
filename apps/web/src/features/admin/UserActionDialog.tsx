@@ -48,16 +48,18 @@ export function UserActionDialog({
   action,
   csrfToken,
   triggerLabel,
+  onStaleRecovery,
 }: {
   target: SafeUser;
   action: UserAction;
   csrfToken: string;
   triggerLabel: string;
+  onStaleRecovery: (target: SafeUser) => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [retryBlocked, setRetryBlocked] = useState(false);
   const copy = actionCopy(target, action);
 
   const refreshRecords = async () => {
@@ -87,10 +89,7 @@ export function UserActionDialog({
         caught.code === 'STALE_USER_VERSION'
       ) {
         setOpen(false);
-        setNotice(
-          `${target.name} changed elsewhere. The latest record is now loaded.`,
-        );
-        await refreshRecords();
+        await onStaleRecovery(target);
         return;
       }
 
@@ -98,62 +97,72 @@ export function UserActionDialog({
         caught instanceof ApiProblem &&
         (caught.status === 403 || caught.status === 409)
       ) {
-        await refreshRecords();
+        setError(mutationProblemMessage(caught));
+        setRetryBlocked(true);
+        void refreshRecords().catch(() => undefined);
+        return;
       }
       setError(mutationProblemMessage(caught));
     },
   });
 
   const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && mutation.isPending) return;
     setOpen(nextOpen);
     if (nextOpen) {
       setError(null);
-      setNotice(null);
+      setRetryBlocked(false);
       mutation.reset();
     }
   };
 
   return (
-    <>
-      <Dialog.Root open={open} onOpenChange={handleOpenChange}>
-        <Dialog.Trigger asChild>
-          <Button type="button" className="button-secondary">
-            {triggerLabel}
-          </Button>
-        </Dialog.Trigger>
-        <Dialog.Portal>
-          <Dialog.Overlay className="dialog-overlay" />
-          <Dialog.Content className="dialog-content">
-            <p className="eyebrow">Confirm account change</p>
-            <Dialog.Title>{copy.title}</Dialog.Title>
-            <Dialog.Description>{copy.description}</Dialog.Description>
-            {error && <ProblemAlert message={error} />}
-            <div className="dialog-actions">
-              <Dialog.Close asChild>
-                <Button type="button" className="button-secondary">
-                  Cancel
-                </Button>
-              </Dialog.Close>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+      <Dialog.Trigger asChild>
+        <Button type="button" className="button-secondary">
+          {triggerLabel}
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content
+          className="dialog-content"
+          onEscapeKeyDown={(event) => {
+            if (mutation.isPending) event.preventDefault();
+          }}
+          onPointerDownOutside={(event) => {
+            if (mutation.isPending) event.preventDefault();
+          }}
+        >
+          <p className="eyebrow">Confirm account change</p>
+          <Dialog.Title>{copy.title}</Dialog.Title>
+          <Dialog.Description>{copy.description}</Dialog.Description>
+          {error && <ProblemAlert message={error} />}
+          <div className="dialog-actions">
+            <Dialog.Close asChild>
               <Button
                 type="button"
-                className="button-danger"
+                className="button-secondary"
                 disabled={mutation.isPending}
-                onClick={() => {
-                  setError(null);
-                  mutation.mutate();
-                }}
               >
-                {mutation.isPending ? 'Updating…' : copy.confirm}
+                Cancel
               </Button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      {notice && (
-        <p className="action-notice" aria-live="polite">
-          {notice}
-        </p>
-      )}
-    </>
+            </Dialog.Close>
+            <Button
+              type="button"
+              className="button-danger"
+              disabled={mutation.isPending || retryBlocked}
+              onClick={() => {
+                setError(null);
+                setRetryBlocked(false);
+                mutation.mutate();
+              }}
+            >
+              {mutation.isPending ? 'Updating…' : copy.confirm}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

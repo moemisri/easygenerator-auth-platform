@@ -34,10 +34,12 @@ function UserControls({
   actor,
   target,
   csrfToken,
+  onStaleRecovery,
 }: {
   actor: SafeUser;
   target: SafeUser;
   csrfToken: string;
+  onStaleRecovery: (target: SafeUser) => Promise<void>;
 }) {
   const roles = assignableRoles(actor, target);
   const [role, setRole] = useState<Role | undefined>(roles[0]);
@@ -68,12 +70,14 @@ function UserControls({
         action={{ kind: 'role', role }}
         csrfToken={csrfToken}
         triggerLabel={`Change ${target.name}'s role`}
+        onStaleRecovery={onStaleRecovery}
       />
       <UserActionDialog
         target={target}
         action={{ kind: 'status', status: nextStatus }}
         csrfToken={csrfToken}
         triggerLabel={`${statusVerb} ${target.name}'s account`}
+        onStaleRecovery={onStaleRecovery}
       />
     </div>
   );
@@ -83,10 +87,12 @@ export function UserTable({
   users,
   actor,
   csrfToken,
+  onStaleRecovery,
 }: {
   users: SafeUser[];
   actor: SafeUser;
   csrfToken: string;
+  onStaleRecovery: (target: SafeUser) => Promise<void>;
 }) {
   const hasActions = users.some((user) => canManageUser(actor, user));
 
@@ -129,6 +135,7 @@ export function UserTable({
                       actor={actor}
                       target={user}
                       csrfToken={csrfToken}
+                      onStaleRecovery={onStaleRecovery}
                     />
                   </td>
                 )}
@@ -169,6 +176,7 @@ export function UserTable({
               actor={actor}
               target={user}
               csrfToken={csrfToken}
+              onStaleRecovery={onStaleRecovery}
             />
           </li>
         ))}

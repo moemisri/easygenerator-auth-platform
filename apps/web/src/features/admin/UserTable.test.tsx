@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { createQueryClient } from '../../app/query-client';
 import { UserTable } from './UserTable';
 
+const onStaleRecovery = async () => undefined;
+
 function person(
   id: string,
   name: string,
@@ -28,7 +30,12 @@ function person(
 function renderTable(actor: SafeUser, target: SafeUser) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <UserTable users={[target]} actor={actor} csrfToken={'c'.repeat(32)} />
+      <UserTable
+        users={[target]}
+        actor={actor}
+        csrfToken={'c'.repeat(32)}
+        onStaleRecovery={onStaleRecovery}
+      />
     </QueryClientProvider>,
   );
 }
@@ -80,7 +87,12 @@ describe('UserTable permission policy', () => {
 
     rerender(
       <QueryClientProvider client={createQueryClient()}>
-        <UserTable users={[admin]} actor={admin} csrfToken={'c'.repeat(32)} />
+        <UserTable
+          users={[admin]}
+          actor={admin}
+          csrfToken={'c'.repeat(32)}
+          onStaleRecovery={onStaleRecovery}
+        />
       </QueryClientProvider>,
     );
     expectControls('Admin operator', false);
@@ -126,6 +138,7 @@ describe('UserTable permission policy', () => {
           users={[initial]}
           actor={manager}
           csrfToken={'c'.repeat(32)}
+          onStaleRecovery={onStaleRecovery}
         />
       </QueryClientProvider>,
     );
@@ -136,6 +149,7 @@ describe('UserTable permission policy', () => {
           users={[refreshed]}
           actor={manager}
           csrfToken={'c'.repeat(32)}
+          onStaleRecovery={onStaleRecovery}
         />
       </QueryClientProvider>,
     );

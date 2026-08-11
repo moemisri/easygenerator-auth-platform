@@ -1,5 +1,6 @@
-import type { AdminUsersQuery } from '@easygenerator/contracts';
-import { useEffect, useState } from 'react';
+import type { AdminUsersQuery, SafeUser } from '@easygenerator/contracts';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { Button } from '../../components/Button';
@@ -19,10 +20,13 @@ function positivePage(value: string | null): number {
 
 export function AdminDashboard() {
   const { user: actor, csrfToken } = useAuth();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const page = positivePage(searchParams.get('page'));
   const committedSearch = searchParams.get('search') ?? '';
   const [search, setSearch] = useState(committedSearch);
+  const [staleNotice, setStaleNotice] = useState<string | null>(null);
+  const staleNoticeRef = useRef<HTMLParagraphElement>(null);
   const query: AdminUsersQuery = {
     page,
     pageSize: PAGE_SIZE,
@@ -32,6 +36,31 @@ export function AdminDashboard() {
   };
   const users = useAdminUsers(query);
   const audits = useAdminAuditEvents({ page: 1, pageSize: PAGE_SIZE });
+
+  const recoverStaleUser = useCallback(
+    async (target: SafeUser) => {
+      setStaleNotice(null);
+      const userRefresh = queryClient.invalidateQueries({
+        queryKey: ['admin', 'users'],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['admin', 'audit-events'],
+      });
+      await userRefresh;
+      setStaleNotice(
+        `${target.name} changed elsewhere. The latest record is now loaded.`,
+      );
+    },
+    [queryClient],
+  );
+
+  useEffect(() => {
+    if (staleNotice) staleNoticeRef.current?.focus();
+  }, [staleNotice]);
+
+  useEffect(() => {
+    setSearch(committedSearch);
+  }, [committedSearch]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -64,6 +93,16 @@ export function AdminDashboard() {
 
   return (
     <div className="admin-dashboard">
+      {staleNotice && (
+        <p
+          ref={staleNoticeRef}
+          className="action-notice"
+          aria-live="polite"
+          tabIndex={-1}
+        >
+          {staleNotice}
+        </p>
+      )}
       <section className="admin-summary" aria-labelledby="directory-heading">
         <div className="section-heading">
           <div>
@@ -128,6 +167,7 @@ export function AdminDashboard() {
                   users={users.data.items}
                   actor={actor}
                   csrfToken={csrfToken}
+                  onStaleRecovery={recoverStaleUser}
                 />
               )
             )}
@@ -159,6 +199,11 @@ export function AdminDashboard() {
             <p className="eyebrow">Redacted record</p>
             <h2 id="audit-heading">Recent audit events</h2>
           </div>
+          {audits.isFetching && !audits.isPending && (
+            <p role="status" className="quiet-status">
+              Updating audit events
+            </p>
+          )}
         </div>
         {audits.isPending && <p role="status">Loading audit events…</p>}
         {audits.isError && (

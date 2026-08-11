@@ -37,9 +37,20 @@ function renderActions(queryClient: QueryClient = createQueryClient()) {
   queryClient.setQueryData(['admin', 'audit-events', { page: 1 }], {
     cached: true,
   });
+  const onStaleRecovery = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'audit-events'] }),
+    ]);
+  };
   render(
     <QueryClientProvider client={queryClient}>
-      <UserTable users={[target]} actor={actor} csrfToken={'c'.repeat(32)} />
+      <UserTable
+        users={[target]}
+        actor={actor}
+        csrfToken={'c'.repeat(32)}
+        onStaleRecovery={onStaleRecovery}
+      />
     </QueryClientProvider>,
   );
   return queryClient;
@@ -114,6 +125,48 @@ describe('UserActionDialog', () => {
     ).toBe(true);
   });
 
+  it('prevents close, reopen, and a duplicate confirmation while a PATCH is pending', async () => {
+    const pending = deferred<HttpResponse<SafeUser>>();
+    let requestCount = 0;
+    server.use(
+      http.patch('/api/v1/admin/users/:id', () => {
+        requestCount += 1;
+        return pending.promise;
+      }),
+    );
+    renderActions();
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getAllByRole('button', {
+        name: "Change Ada Lovelace's role",
+      })[0]!,
+    );
+    await user.click(screen.getByRole('button', { name: 'Change role' }));
+    expect(
+      await screen.findByRole('button', { name: 'Updating…' }),
+    ).toBeDisabled();
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeVisible();
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel).toBeDisabled();
+    await user.click(cancel);
+    await user.click(screen.getByRole('button', { name: 'Updating…' }));
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(requestCount).toBe(1);
+
+    await act(async () => {
+      pending.resolve(
+        HttpResponse.json({ ...target, role: 'SUPPORT', version: 4 }),
+      );
+      await pending.promise;
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+  });
+
   it('uses exact status copy and keeps a standard failure inside the dialog', async () => {
     server.use(
       http.patch('/api/v1/admin/users/:id', () =>
@@ -148,7 +201,7 @@ describe('UserActionDialog', () => {
     expect(screen.getByRole('dialog')).toBeVisible();
   });
 
-  it('closes and announces stale recovery without replaying the mutation', async () => {
+  it('closes and delegates stale recovery without replaying the mutation', async () => {
     let requestCount = 0;
     server.use(
       http.patch('/api/v1/admin/users/:id', () => {
@@ -176,12 +229,9 @@ describe('UserActionDialog', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Disable account' }));
 
-    expect(
-      await screen.findByText(
-        'Ada Lovelace changed elsewhere. The latest record is now loaded.',
-      ),
-    ).toHaveAttribute('aria-live', 'polite');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
     expect(requestCount).toBe(1);
     expect(
       queryClient.getQueryState(['admin', 'users', { page: 1 }])?.isInvalidated,

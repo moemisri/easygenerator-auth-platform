@@ -656,6 +656,10 @@ a {
   color: var(--success);
   font-size: 0.8rem;
 }
+.admin-dashboard > .action-notice {
+  grid-column: 1 / -1;
+  margin: 0;
+}
 .admin-page > .problem-alert {
   width: min(100%, 90rem);
   margin: 1rem auto;
@@ -664,6 +668,12 @@ a {
   display: grid;
   place-content: center;
   gap: 1rem;
+}
+.not-found a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  width: fit-content;
 }
 @keyframes enter {
   from {
