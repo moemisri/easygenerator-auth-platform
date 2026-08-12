@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { runScan, scanText } from '../../../../scripts/scan-secrets.mjs';
 
 describe('secret scanner', () => {
+  const adminKey = ['ADMIN', '_PASSWORD'].join('');
   const credentialMongo = [
     'mongodb+srv://user',
     ':credential@',
@@ -15,11 +16,10 @@ describe('secret scanner', () => {
   ].join('');
   const geminiKey = ['AIzaSyA012345678901', '2345678901234567890'].join('');
   const privateKeyMarker = ['-----BEGIN OPENSSH ', 'PRIVATE KEY-----'].join('');
-  const adminAssignment = ['ADMIN_PASSWORD', '=Temporary1!'].join('');
-  const exportedAdminAssignment = [
-    'export ADMIN_PASSWORD',
-    '=Temporary1!',
-  ].join('');
+  const adminAssignment = [adminKey, '=Temporary1!'].join('');
+  const exportedAdminAssignment = [`export ${adminKey}`, '=Temporary1!'].join(
+    '',
+  );
 
   it.each([
     ['mongodb-uri', `MONGODB_URI=${credentialMongo}`],
@@ -31,6 +31,12 @@ describe('secret scanner', () => {
     ['base64-secret', `opaque: ${Buffer.alloc(33, 8).toString('base64')}`],
     ['base64-secret', `'${Buffer.alloc(32, 9).toString('base64')}'`],
     ['base64-secret', `'${Buffer.alloc(32, 255).toString('base64')}'`],
+    ['base64-secret', `value=${Buffer.alloc(32, 255).toString('base64')}.ts`],
+    [
+      'base64-secret',
+      `value=${Buffer.alloc(32, 254).toString('base64')}.test.ts`,
+    ],
+    ['base64-secret', `value=${Buffer.alloc(33, 253).toString('base64')}.tsx`],
     [
       'base64-secret',
       `leaked material ${Buffer.alloc(32, 10).toString('base64')}`,
@@ -50,15 +56,82 @@ describe('secret scanner', () => {
     expect(JSON.stringify(findings)).not.toContain(content);
   });
 
+  it.each([
+    ['env prefix', [`env ${adminKey}`, '=fixture-value command'].join('')],
+    [
+      'docker environment flag',
+      [`docker run -e ${adminKey}`, '=fixture-value image'].join(''),
+    ],
+    [
+      'inline shell assignment',
+      [`command ${adminKey}`, '=fixture-value'].join(''),
+    ],
+    [
+      'semicolon-adjacent assignment',
+      ['command;', adminKey, '=fixture-value'].join(''),
+    ],
+    [
+      'quoted inline assignment',
+      ['command "', adminKey, '=fixture-value"'].join(''),
+    ],
+    ['single-quoted value', [adminKey, "='fixture-value'"].join('')],
+    ['double-quoted value', [adminKey, '="fixture-value"'].join('')],
+  ])(
+    'detects an administrator password in %s without returning its value',
+    (_, content) => {
+      const findings = scanText('fixture.sh', content);
+      expect(findings).toEqual([
+        { path: 'fixture.sh', category: 'admin-password' },
+      ]);
+      expect(JSON.stringify(findings)).not.toContain('fixture-value');
+    },
+  );
+
   it('allows documentation and empty environment key names', () => {
     const documentation = `
       MONGODB_URI=
       GEMINI_API_KEY=
-      ADMIN_PASSWORD=
+      ${adminKey}=
+      Mention ${adminKey} without assigning it.
       Use CSRF_SECRET and IDENTITY_HASH_SECRET from the secure UI.
       mongodb://mongo:27017/easygenerator_auth
     `;
     expect(scanText('.env.example', documentation)).toEqual([]);
+    expect(
+      scanText('fixture.sh', [`NOT_${adminKey}`, '=fixture-value'].join('')),
+    ).toEqual([]);
+    for (const emptyAssignment of [
+      `${adminKey}=`,
+      `${adminKey}=''`,
+      `${adminKey}=""`,
+    ]) {
+      expect(scanText('fixture.sh', emptyAssignment)).toEqual([]);
+    }
+  });
+
+  it('classifies only the exact historical bootstrap redaction fixture', () => {
+    const fixturePath = 'apps/api/src/cli/bootstrap-admin.spec.ts';
+    const knownAssignment = [adminKey, '=secret-marker'].join('');
+    const otherAssignment = [adminKey, '=different-marker'].join('');
+    const mockContext = (assignment) =>
+      `const close = vi.fn().mockRejectedValue(new Error('${assignment}'));`;
+
+    expect(scanText(fixturePath, mockContext(knownAssignment))).toEqual([]);
+    expect(
+      scanText(
+        `a`.repeat(40) + `:${fixturePath}`,
+        mockContext(knownAssignment),
+      ),
+    ).toEqual([]);
+    expect(scanText(fixturePath, `env ${knownAssignment} command`)).toEqual([
+      { path: fixturePath, category: 'admin-password' },
+    ]);
+    expect(scanText('other.spec.ts', mockContext(knownAssignment))).toEqual([
+      { path: 'other.spec.ts', category: 'admin-password' },
+    ]);
+    expect(scanText(fixturePath, mockContext(otherAssignment))).toEqual([
+      { path: fixturePath, category: 'admin-password' },
+    ]);
   });
 
   it('classifies only fixed fake credentials on reserved hosts as test fixtures', () => {
@@ -126,9 +199,18 @@ describe('secret scanner', () => {
     for (const sourcePath of [
       'apps/web/src/features/admin/UserActionDialog.tsx',
       'apps/web/src/features/admin/UserActionDialog.test.tsx',
+      'apps/web/src/features/assistant/SafeMarkdown.tsx',
+      'apps/web/src/features/assistant/SafeMarkdown.test.tsx',
     ]) {
       expect(scanText('plan.md', `- Create: \`${sourcePath}\``)).toEqual([]);
     }
+    const deceptiveSourceToken = `apps/a/${'a'.repeat(37)}`;
+    expect(Buffer.from(deceptiveSourceToken, 'base64').toString('base64')).toBe(
+      deceptiveSourceToken,
+    );
+    expect(scanText('fixture.txt', `\`${deceptiveSourceToken}.ts\``)).toEqual([
+      { path: 'fixture.txt', category: 'base64-secret' },
+    ]);
     for (const route of [
       "'/API/V1/ADMIN/users?page=1'",
       "'/Api/v1/AdMiN/users/507f1f77bcf86cd799439011'",

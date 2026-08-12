@@ -216,7 +216,9 @@ describe('bootstrap admin entrypoint', () => {
     };
     const close = vi
       .fn()
-      .mockRejectedValue(new Error('ADMIN_PASSWORD=secret-marker'));
+      .mockRejectedValue(
+        new Error(['ADMIN_PASSWORD', '=secret-marker'].join('')),
+      );
     const application = {
       close,
       get: (token: unknown) => {

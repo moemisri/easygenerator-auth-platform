@@ -6,11 +6,40 @@ import path from 'node:path';
 const detectors = [
   ['gemini-key', /AIzaSy[A-Za-z0-9_-]{30,}/g],
   ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g],
-  [
-    'admin-password',
-    /(?:^|\n)[ \t]*(?:export[ \t]+)?ADMIN_PASSWORD[ \t]*=[ \t]*[^\s#][^\r\n]*/g,
-  ],
 ];
+
+const adminPasswordAssignment =
+  /(?<![A-Za-z0-9_])ADMIN_PASSWORD[ \t]*=[ \t]*(?:"[^"\r\n]+"|'[^'\r\n]+'|[^\s#"'][^\s"']*)/g;
+const bootstrapRedactionFixturePath =
+  'apps/api/src/cli/bootstrap-admin.spec.ts';
+const bootstrapRedactionFixtureAssignment = [
+  'ADMIN_PASSWORD',
+  '=secret-marker',
+].join('');
+
+function isKnownBootstrapRedactionFixture(pathname, content, match) {
+  const normalizedPath = pathname.replace(/^[0-9a-f]{40}:/, '');
+  if (
+    normalizedPath !== bootstrapRedactionFixturePath ||
+    match[0] !== bootstrapRedactionFixtureAssignment
+  ) {
+    return false;
+  }
+  const before = content.slice(Math.max(0, match.index - 64), match.index);
+  const quote = before.match(/new\s+Error\(\s*(["'])$/)?.[1];
+  return (
+    quote !== undefined && content.at(match.index + match[0].length) === quote
+  );
+}
+
+function hasAdminPasswordFinding(pathname, content) {
+  adminPasswordAssignment.lastIndex = 0;
+  for (const match of content.matchAll(adminPasswordAssignment)) {
+    if (!isKnownBootstrapRedactionFixture(pathname, content, match))
+      return true;
+  }
+  return false;
+}
 
 const credentialMongoUri =
   /mongodb(?:\+srv)?:\/\/([^\s:@/]+):([^\s@/]+)@(\[[^\]\s]+\]|[A-Za-z0-9.-]+)/gi;
@@ -37,6 +66,12 @@ function hasCredentialMongoFinding(content) {
 
 const base64Candidate =
   /(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/]{43,}={0,2}(?![A-Za-z0-9+/=_-])/g;
+const documentedRepositorySourcePaths = new Set([
+  'apps/web/src/features/admin/UserActionDialog.tsx',
+  'apps/web/src/features/admin/UserActionDialog.test.tsx',
+  'apps/web/src/features/assistant/SafeMarkdown.tsx',
+  'apps/web/src/features/assistant/SafeMarkdown.test.tsx',
+]);
 
 function containsCanonicalLongBase64(content) {
   for (const match of content.matchAll(base64Candidate)) {
@@ -45,10 +80,14 @@ function containsCanonicalLongBase64(content) {
     const decoded = Buffer.from(candidate, 'base64');
     const before = content.slice(Math.max(0, match.index - 1), match.index);
     const after = content.slice(match.index + candidate.length);
+    const sourcePathSuffix = after.match(
+      /^(\.(?:test\.)?(?:[cm]?[jt]sx?|md|ya?ml|json|css|html))([`'"])/,
+    );
     const knownSourcePath =
-      candidate.includes('/') &&
-      /^\.(?:test\.)?(?:[cm]?[jt]sx?|md|ya?ml|json|css|html)(?:[`'"\s]|$)/.test(
-        after,
+      ['"', "'", '`'].includes(before) &&
+      sourcePathSuffix?.[2] === before &&
+      documentedRepositorySourcePaths.has(
+        `${candidate}${sourcePathSuffix?.[1] ?? ''}`,
       );
     const routePath =
       /^\/api\/v1\/admin\/users\/[0-9a-f]{24}$/i.test(candidate) &&
@@ -85,6 +124,9 @@ export function scanText(pathname, content) {
   for (const [category, pattern] of detectors) {
     pattern.lastIndex = 0;
     if (pattern.test(content)) findings.push({ path: pathname, category });
+  }
+  if (hasAdminPasswordFinding(pathname, content)) {
+    findings.push({ path: pathname, category: 'admin-password' });
   }
   if (containsCanonicalLongBase64(content)) {
     findings.push({ path: pathname, category: 'base64-secret' });
