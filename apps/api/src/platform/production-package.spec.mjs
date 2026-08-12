@@ -14,6 +14,24 @@ function read(relativePath) {
 }
 
 describe('production container artifacts', () => {
+  it('copies contract build inputs before the dependency-stage install lifecycle', () => {
+    const dockerfile = read('Dockerfile');
+    const contractTsconfig = dockerfile.indexOf(
+      'COPY packages/contracts/tsconfig.json packages/contracts/tsconfig.json',
+    );
+    const contractSource = dockerfile.indexOf(
+      'COPY packages/contracts/src packages/contracts/src',
+    );
+    const install = dockerfile.indexOf('RUN pnpm install --frozen-lockfile');
+
+    expect(contractTsconfig).toBeGreaterThanOrEqual(0);
+    expect(contractSource).toBeGreaterThan(contractTsconfig);
+    expect(install).toBeGreaterThan(contractSource);
+    expect(dockerfile).not.toContain(
+      'pnpm install --frozen-lockfile --ignore-scripts',
+    );
+  });
+
   it('pins the toolchain and preserves the minimal ESM runtime layout', () => {
     const dockerfile = read('Dockerfile');
 

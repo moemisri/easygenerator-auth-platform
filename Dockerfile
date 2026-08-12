@@ -8,6 +8,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/contracts/tsconfig.json packages/contracts/tsconfig.json
+COPY packages/contracts/src packages/contracts/src
 RUN pnpm install --frozen-lockfile
 
 FROM node:24.18.0-bookworm-slim AS build

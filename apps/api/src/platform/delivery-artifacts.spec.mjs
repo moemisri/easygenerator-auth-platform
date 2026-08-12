@@ -22,6 +22,13 @@ function fencedShellCommands(markdown) {
 }
 
 describe('delivery policy artifacts', () => {
+  it('builds shared contracts after every normal workspace install', () => {
+    expect(JSON.parse(read('package.json')).scripts).toHaveProperty(
+      'prepare',
+      'pnpm --filter @easygenerator/contracts build',
+    );
+  });
+
   it('defines only the five stable least-privilege CI jobs with locked runtimes', () => {
     const source = read('.github/workflows/ci.yml');
     const workflow = load(source);
