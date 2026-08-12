@@ -12,6 +12,7 @@ const testEnvironment = {
   ...process.env,
   NODE_ENV: 'test',
   VITEST: 'true',
+  APP_BOOTSTRAP: 'false',
   MONGODB_URI:
     'mongodb://127.0.0.1:27018/easygenerator_auth_test?replicaSet=rs0&directConnection=true',
   DB_NAME: 'easygenerator_auth_test',

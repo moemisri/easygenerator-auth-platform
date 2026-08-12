@@ -17,9 +17,13 @@ describe('HealthController', () => {
   });
 
   async function createApp(
-    mongodb: { ping(): Promise<unknown> } = { ping: async () => ({ ok: 1 }) },
-    redis: { ping(): Promise<unknown> } = { ping: async () => 'PONG' },
-  ) {
+    mongodb: { ping(): Promise<unknown> } = {
+      ping: () => Promise.resolve({ ok: 1 }),
+    },
+    redis: { ping(): Promise<unknown> } = {
+      ping: () => Promise.resolve('PONG'),
+    },
+  ): Promise<INestApplication> {
     const module = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [
@@ -43,37 +47,40 @@ describe('HealthController', () => {
   });
 
   it('serves liveness through the Nest HTTP route', async () => {
-    await createApp();
+    const createdApp = await createApp();
 
-    await request(app!.getHttpServer())
-      .get('/health/live')
-      .expect(200, { status: 'ok' });
+    const server = createdApp.getHttpServer() as Parameters<typeof request>[0];
+    const response = await request(server).get('/health/live');
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.text) as unknown).toEqual({ status: 'ok' });
   });
 
-  it('returns 200 with degraded readiness when only Redis fails', async () => {
-    await createApp(undefined, {
+  it('returns 503 when Redis fails', async () => {
+    const createdApp = await createApp(undefined, {
       ping: async () => Promise.reject(new Error('Redis unavailable')),
     });
 
-    await request(app!.getHttpServer())
-      .get('/health/ready')
-      .expect(200, {
-        status: 'degraded',
-        dependencies: { mongodb: 'up', redis: 'down' },
-      });
+    const server = createdApp.getHttpServer() as Parameters<typeof request>[0];
+    const response = await request(server).get('/health/ready');
+    expect(response.status).toBe(503);
+    expect(JSON.parse(response.text) as unknown).toEqual({
+      status: 'degraded',
+      dependencies: { mongodb: 'up', redis: 'down' },
+    });
   });
 
   it('returns 503 when MongoDB fails', async () => {
-    await createApp(
+    const createdApp = await createApp(
       { ping: async () => Promise.reject(new Error('MongoDB unavailable')) },
       undefined,
     );
 
-    await request(app!.getHttpServer())
-      .get('/health/ready')
-      .expect(503, {
-        status: 'degraded',
-        dependencies: { mongodb: 'down', redis: 'up' },
-      });
+    const server = createdApp.getHttpServer() as Parameters<typeof request>[0];
+    const response = await request(server).get('/health/ready');
+    expect(response.status).toBe(503);
+    expect(JSON.parse(response.text) as unknown).toEqual({
+      status: 'degraded',
+      dependencies: { mongodb: 'down', redis: 'up' },
+    });
   });
 });

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HealthService } from './health.service';
 
 const passingDependency = {
-  ping: async () => ({ ok: 1 }),
+  ping: () => Promise.resolve({ ok: 1 }),
 };
 
 const failingDependency = {

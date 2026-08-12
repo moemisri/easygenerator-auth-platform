@@ -19,6 +19,12 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0
 `;
+const compareAndRenewScript = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return 0
+`;
 
 export const ASSISTANT_LEASE_RANDOM_SOURCE = Symbol(
   'ASSISTANT_LEASE_RANDOM_SOURCE',
@@ -101,5 +107,21 @@ export class AssistantConcurrencyService {
     if (result !== 0 && result !== 1) {
       throw assistantProtectionUnavailable();
     }
+  }
+
+  async renew(lease: AssistantLease): Promise<void> {
+    let result: unknown;
+    try {
+      result = await this.redis.eval(
+        compareAndRenewScript,
+        1,
+        lease.key,
+        lease.token,
+        LEASE_SECONDS,
+      );
+    } catch {
+      throw assistantProtectionUnavailable();
+    }
+    if (result !== 1) throw assistantProtectionUnavailable();
   }
 }

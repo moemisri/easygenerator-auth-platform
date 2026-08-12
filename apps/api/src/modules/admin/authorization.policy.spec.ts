@@ -5,7 +5,6 @@ import {
   capabilities,
   can,
   canUpdateUser,
-  removesActiveAdmin,
   type Capability,
 } from './authorization.policy';
 
@@ -257,24 +256,4 @@ describe('actor/target policy', () => {
       ),
     ).toBe(false);
   });
-});
-
-describe('active-admin removal classification', () => {
-  it.each([
-    ['ADMIN', 'ACTIVE', 'USER', 'ACTIVE', true],
-    ['ADMIN', 'ACTIVE', 'ADMIN', 'DISABLED', true],
-    ['ADMIN', 'ACTIVE', 'ADMIN', 'ACTIVE', false],
-    ['ADMIN', 'DISABLED', 'USER', 'DISABLED', false],
-    ['USER', 'ACTIVE', 'ADMIN', 'ACTIVE', false],
-  ] as const)(
-    '%s/%s -> %s/%s is removal: %s',
-    (role, status, nextRole, nextStatus, expected) => {
-      expect(
-        removesActiveAdmin(
-          { role, status },
-          { role: nextRole, status: nextStatus },
-        ),
-      ).toBe(expected);
-    },
-  );
 });

@@ -23,7 +23,10 @@ export class HealthController {
   @ApiHealthReady()
   async ready(@Res({ passthrough: true }) response: StatusResponse) {
     const readiness = await this.health.ready();
-    if (readiness.dependencies.mongodb === 'down') {
+    if (
+      readiness.dependencies.mongodb === 'down' ||
+      readiness.dependencies.redis === 'down'
+    ) {
       response.status(503);
     }
     return readiness;

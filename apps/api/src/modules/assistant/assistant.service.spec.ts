@@ -18,6 +18,7 @@ import { AssistantService } from './assistant.service';
 import type {
   AssistantCorpus,
   AssistantProvider,
+  AssistantProviderInput,
   AssistantRequestEvents,
   AssistantStreamResponse,
 } from './assistant.types';
@@ -79,16 +80,38 @@ class StreamResponse extends EventEmitter implements AssistantStreamResponse {
   }
 }
 
-function events(response: StreamResponse): unknown[] {
+interface StreamEvent {
+  type: string;
+  data: unknown;
+}
+
+function events(response: StreamResponse): StreamEvent[] {
   return response.chunks.map((frame) => {
     const match = /^event: ([^\n]+)\ndata: ([^\n]+)\n\n$/.exec(frame);
     if (match === null) throw new Error(`Invalid frame: ${frame}`);
-    return { type: match[1], data: JSON.parse(match[2]!) };
+    const data: unknown = JSON.parse(match[2]!);
+    return { type: match[1]!, data };
+  });
+}
+
+function iterableOf(...values: string[]): AsyncIterable<string> {
+  let index = 0;
+  return iterableFrom({
+    next: () => {
+      const value = values[index];
+      index += 1;
+      return Promise.resolve(
+        value === undefined
+          ? { done: true as const, value: undefined }
+          : { done: false as const, value },
+      );
+    },
   });
 }
 
 interface Overrides {
   assistantEnabled?: boolean;
+  load?: ReturnType<typeof vi.fn>;
   loadCorpus?: AssistantCorpus;
   provider?: AssistantProvider;
   cacheGet?: ReturnType<typeof vi.fn>;
@@ -96,14 +119,18 @@ interface Overrides {
   retrieve?: ReturnType<typeof vi.fn>;
   enforce?: ReturnType<typeof vi.fn>;
   acquire?: ReturnType<typeof vi.fn>;
+  renew?: ReturnType<typeof vi.fn>;
   release?: ReturnType<typeof vi.fn>;
   audit?: ReturnType<typeof vi.fn>;
   logError?: ReturnType<typeof vi.fn>;
   deadlineMilliseconds?: number;
+  leaseRenewalMilliseconds?: number;
 }
 
 function createService(overrides: Overrides = {}) {
-  const load = vi.fn(async () => overrides.loadCorpus ?? corpus);
+  const load =
+    overrides.load ??
+    vi.fn(() => Promise.resolve(overrides.loadCorpus ?? corpus));
   const retrieve =
     overrides.retrieve ??
     vi.fn(() => ({
@@ -111,20 +138,27 @@ function createService(overrides: Overrides = {}) {
       normalizedQuery: 'explain sessions',
       chunks: [{ ...corpus.chunks[0]!, coverage: 1 }],
     }));
-  const cacheGet = overrides.cacheGet ?? vi.fn(async () => null);
-  const cacheSet = overrides.cacheSet ?? vi.fn(async () => undefined);
-  const enforce = overrides.enforce ?? vi.fn(async () => undefined);
-  const acquire = overrides.acquire ?? vi.fn(async () => lease);
-  const release = overrides.release ?? vi.fn(async () => undefined);
-  const audit = overrides.audit ?? vi.fn(async () => undefined);
+  const cacheGet = overrides.cacheGet ?? vi.fn(() => Promise.resolve(null));
+  const cacheSet =
+    overrides.cacheSet ?? vi.fn(() => Promise.resolve(undefined));
+  const enforce = overrides.enforce ?? vi.fn(() => Promise.resolve(undefined));
+  const acquire = overrides.acquire ?? vi.fn(() => Promise.resolve(lease));
+  const renew = overrides.renew ?? vi.fn(() => Promise.resolve(undefined));
+  const release = overrides.release ?? vi.fn(() => Promise.resolve(undefined));
+  const audit = overrides.audit ?? vi.fn(() => Promise.resolve(undefined));
   const logError = overrides.logError ?? vi.fn();
-  const provider: AssistantProvider = overrides.provider ?? {
-    stream: vi.fn(() =>
-      (async function* () {
-        yield 'Sessions are ';
-        yield 'server-side.';
-      })(),
-    ),
+  const overriddenProvider = overrides.provider;
+  const providerInvoked = vi.fn();
+  const providerCalls: Array<[AssistantProviderInput, AbortSignal]> = [];
+  const provider: AssistantProvider = {
+    stream(providerInput, signal) {
+      providerInvoked();
+      providerCalls.push([providerInput, signal]);
+      if (overriddenProvider !== undefined) {
+        return overriddenProvider.stream(providerInput, signal);
+      }
+      return iterableOf('Sessions are ', 'server-side.');
+    },
   };
   const config = {
     getOrThrow: (key: string) => {
@@ -140,11 +174,12 @@ function createService(overrides: Overrides = {}) {
     { search: retrieve } as unknown as RetrieverService,
     { get: cacheGet, set: cacheSet } as unknown as AssistantCacheService,
     { enforce } as unknown as AssistantRateLimiterService,
-    { acquire, release } as unknown as AssistantConcurrencyService,
+    { acquire, renew, release } as unknown as AssistantConcurrencyService,
     provider,
     { record: audit } as unknown as AuditService,
     { error: logError } as unknown as PinoLogger,
     overrides.deadlineMilliseconds ?? 30_000,
+    overrides.leaseRenewalMilliseconds ?? 10_000,
   );
   return {
     service,
@@ -154,10 +189,12 @@ function createService(overrides: Overrides = {}) {
     cacheSet,
     enforce,
     acquire,
+    renew,
     release,
     audit,
     logError,
-    provider,
+    providerInvoked,
+    providerCalls,
   };
 }
 
@@ -191,7 +228,11 @@ const input = {
     },
   ],
 };
-const context = { requestId: 'request-1', userId: 'user-1' };
+const context = {
+  requestId: 'request-1',
+  requestIp: '192.0.2.10',
+  userId: 'user-1',
+};
 
 describe('AssistantService', () => {
   afterEach(() => {
@@ -210,7 +251,7 @@ describe('AssistantService', () => {
     expect(dependencies.cacheGet).not.toHaveBeenCalled();
     expect(dependencies.enforce).not.toHaveBeenCalled();
     expect(dependencies.acquire).not.toHaveBeenCalled();
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
+    expect(dependencies.providerInvoked).not.toHaveBeenCalled();
     expect(response.headersSent).toBe(false);
   });
 
@@ -247,17 +288,18 @@ describe('AssistantService', () => {
       { type: 'done', data: { outcome: 'answered' } },
     ]);
     expect(response.endCalls).toBe(1);
+    expect(dependencies.enforce).toHaveBeenCalledWith('user-1', '192.0.2.10');
     expect(dependencies.release).toHaveBeenCalledOnce();
-    expect(dependencies.provider.stream).toHaveBeenCalledWith(
-      {
-        system: expect.stringContaining('only the numbered public excerpts'),
-        contents: expect.stringMatching(
-          /Prior conversation:[\s\S]*What stores authentication state\?[\s\S]*Current user message:\nExplain sessions[\s\S]*\[Source 1\] authentication\.md — Sessions[\s\S]*Sessions are server-side\./,
-        ),
-        maxOutputTokens: 800,
-      },
-      expect.any(AbortSignal),
+    expect(dependencies.providerInvoked).toHaveBeenCalledOnce();
+    const providerCall = dependencies.providerCalls[0];
+    if (providerCall === undefined) throw new Error('Provider was not called');
+    const [providerInput, providerSignal] = providerCall;
+    expect(providerInput.system).toContain('only the numbered public excerpts');
+    expect(providerInput.contents).toMatch(
+      /Prior conversation:[\s\S]*What stores authentication state\?[\s\S]*Current user message:\nExplain sessions[\s\S]*\[Source 1\] authentication\.md — Sessions[\s\S]*Sessions are server-side\./,
     );
+    expect(providerInput.maxOutputTokens).toBe(800);
+    expect(providerSignal).toBeInstanceOf(AbortSignal);
   });
 
   it('locally refuses with empty sources and no provider call', async () => {
@@ -282,7 +324,7 @@ describe('AssistantService', () => {
       { type: 'sources', data: { sources: [] } },
       { type: 'done', data: { outcome: 'refused' } },
     ]);
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
+    expect(dependencies.providerInvoked).not.toHaveBeenCalled();
     expect(dependencies.cacheSet).toHaveBeenCalledWith(
       corpus,
       'weather cairo',
@@ -298,9 +340,7 @@ describe('AssistantService', () => {
 
   it('records only safe rate-limit audit metadata and does not acquire a lease', async () => {
     const dependencies = createService({
-      enforce: vi.fn(async () => {
-        throw new AssistantRateLimitError(42);
-      }),
+      enforce: vi.fn(() => Promise.reject(new AssistantRateLimitError(42))),
     });
 
     await expect(
@@ -326,11 +366,107 @@ describe('AssistantService', () => {
     expect(dependencies.acquire).not.toHaveBeenCalled();
   });
 
+  it('preserves a rate-limit response when refusal auditing fails', async () => {
+    const dependencies = createService({
+      enforce: vi.fn(() => Promise.reject(new AssistantRateLimitError(42))),
+      audit: vi.fn(() =>
+        Promise.reject(new Error('mongodb://private-host audit failure')),
+      ),
+    });
+
+    await expect(
+      dependencies.service.chat(
+        input,
+        context,
+        new RequestEvents(),
+        new StreamResponse(),
+      ),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      retryAfterSeconds: 42,
+    });
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_REFUSAL_AUDIT_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant refusal audit failed',
+    );
+    expect(JSON.stringify(dependencies.logError.mock.calls)).not.toContain(
+      'private-host',
+    );
+    expect(dependencies.acquire).not.toHaveBeenCalled();
+  });
+
+  it('preserves a local refusal when refusal auditing fails', async () => {
+    const dependencies = createService({
+      retrieve: vi.fn(() => ({
+        kind: 'refusal',
+        normalizedQuery: 'weather cairo',
+        reason: 'INSUFFICIENT_DOCUMENTATION',
+      })),
+      audit: vi.fn(() =>
+        Promise.reject(new Error('mongodb://private-host audit failure')),
+      ),
+    });
+    const response = new StreamResponse();
+
+    await dependencies.service.chat(
+      { message: 'Weather in Cairo?', history: [] },
+      context,
+      new RequestEvents(),
+      response,
+    );
+
+    expect(events(response)).toEqual([
+      { type: 'sources', data: { sources: [] } },
+      { type: 'done', data: { outcome: 'refused' } },
+    ]);
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_REFUSAL_AUDIT_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant refusal audit failed',
+    );
+    expect(dependencies.providerInvoked).not.toHaveBeenCalled();
+  });
+
+  it('acquires the provider lease only after a slow retrieval preamble finishes', async () => {
+    const loadStarted = deferred<void>();
+    const allowLoad = deferred<AssistantCorpus>();
+    const load = vi.fn(() => {
+      loadStarted.resolve();
+      return allowLoad.promise;
+    });
+    const dependencies = createService({ load });
+    const pending = dependencies.service.chat(
+      input,
+      context,
+      new RequestEvents(),
+      new StreamResponse(),
+    );
+
+    await loadStarted.promise;
+    expect(dependencies.acquire).not.toHaveBeenCalled();
+
+    allowLoad.resolve(corpus);
+    await pending;
+
+    expect(dependencies.acquire).toHaveBeenCalledOnce();
+    expect(dependencies.cacheSet.mock.invocationCallOrder[0]).toBeLessThan(
+      dependencies.acquire.mock.invocationCallOrder[0]!,
+    );
+    expect(dependencies.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+      dependencies.providerInvoked.mock.invocationCallOrder[0]!,
+    );
+  });
+
   it('keeps a cache protection failure as a pre-stream problem and never calls the provider', async () => {
     const dependencies = createService({
-      cacheGet: vi.fn(async () => {
-        throw new AppError('ASSISTANT_PROTECTION_UNAVAILABLE', 503);
-      }),
+      cacheGet: vi.fn(() =>
+        Promise.reject(new AppError('ASSISTANT_PROTECTION_UNAVAILABLE', 503)),
+      ),
     });
     const response = new StreamResponse();
 
@@ -341,71 +477,105 @@ describe('AssistantService', () => {
       status: 503,
     });
     expect(response.headersSent).toBe(false);
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
-    expect(dependencies.release).toHaveBeenCalledOnce();
+    expect(dependencies.providerInvoked).not.toHaveBeenCalled();
+    expect(dependencies.release).not.toHaveBeenCalled();
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_CACHE_GET_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant cache read failed',
+    );
   });
 
-  it('rejects oversized fresh retrieval excerpts at orchestration before cache or provider access', async () => {
-    const oversized = {
-      ...corpus.chunks[0]!,
-      content: 'x'.repeat(12_001),
-      coverage: 1,
-    };
+  it('safely identifies a normalized rate-limit protection failure', async () => {
     const dependencies = createService({
-      retrieve: vi.fn(() => ({
-        kind: 'answer' as const,
-        normalizedQuery: 'explain sessions',
-        chunks: [oversized],
-      })),
+      enforce: vi.fn(() =>
+        Promise.reject(new AppError('ASSISTANT_PROTECTION_UNAVAILABLE', 503)),
+      ),
     });
-    const response = new StreamResponse();
 
     await expect(
-      dependencies.service.chat(input, context, new RequestEvents(), response),
+      dependencies.service.chat(
+        input,
+        context,
+        new RequestEvents(),
+        new StreamResponse(),
+      ),
+    ).rejects.toMatchObject({
+      code: 'ASSISTANT_PROTECTION_UNAVAILABLE',
+      status: 503,
+    });
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_RATE_LIMIT_CHECK_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant rate-limit check failed',
+    );
+  });
+
+  it('safely identifies a normalized corpus load failure', async () => {
+    const dependencies = createService({
+      load: vi.fn(() =>
+        Promise.reject(new AppError('ASSISTANT_CORPUS_UNAVAILABLE', 503)),
+      ),
+    });
+
+    await expect(
+      dependencies.service.chat(
+        input,
+        context,
+        new RequestEvents(),
+        new StreamResponse(),
+      ),
     ).rejects.toMatchObject({
       code: 'ASSISTANT_CORPUS_UNAVAILABLE',
       status: 503,
     });
-    expect(dependencies.cacheSet).not.toHaveBeenCalled();
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
-    expect(response.headersSent).toBe(false);
-    expect(dependencies.release).toHaveBeenCalledOnce();
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_CORPUS_LOAD_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant corpus load failed',
+    );
   });
 
-  it('rejects oversized rehydrated cache excerpts before provider access', async () => {
-    const oversizedCorpus: AssistantCorpus = {
-      digest: 'oversized-digest',
-      chunks: [
-        {
-          ...corpus.chunks[0]!,
-          content: 'x'.repeat(12_001),
-        },
-      ],
-    };
+  it('safely identifies a normalized cache-write protection failure', async () => {
     const dependencies = createService({
-      loadCorpus: oversizedCorpus,
-      cacheGet: vi.fn(async () => oversizedCorpus.chunks),
+      cacheSet: vi.fn(() =>
+        Promise.reject(new AppError('ASSISTANT_PROTECTION_UNAVAILABLE', 503)),
+      ),
     });
-    const response = new StreamResponse();
 
     await expect(
-      dependencies.service.chat(input, context, new RequestEvents(), response),
+      dependencies.service.chat(
+        input,
+        context,
+        new RequestEvents(),
+        new StreamResponse(),
+      ),
     ).rejects.toMatchObject({
-      code: 'ASSISTANT_CORPUS_UNAVAILABLE',
+      code: 'ASSISTANT_PROTECTION_UNAVAILABLE',
       status: 503,
     });
-    expect(dependencies.retrieve).not.toHaveBeenCalled();
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
-    expect(response.headersSent).toBe(false);
-    expect(dependencies.release).toHaveBeenCalledOnce();
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_CACHE_SET_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant cache write failed',
+    );
+    expect(dependencies.acquire).not.toHaveBeenCalled();
   });
 
   it('emits one safe provider error and never emits done after it', async () => {
     const iterator = {
-      next: vi.fn(async () => {
-        throw new Error('private provider response');
-      }),
-      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+      next: vi.fn(() => Promise.reject(new Error('private provider response'))),
+      return: vi.fn(() =>
+        Promise.resolve({ done: true as const, value: undefined }),
+      ),
     };
     const dependencies = createService({
       provider: {
@@ -444,6 +614,16 @@ describe('AssistantService', () => {
       },
     ]);
     expect(response.chunks.join('')).not.toContain('private provider response');
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_PROVIDER_STREAM_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant provider stream failed',
+    );
+    expect(JSON.stringify(dependencies.logError.mock.calls)).not.toContain(
+      'private provider response',
+    );
     expect(iterator.return).toHaveBeenCalledOnce();
     expect(iterator.return.mock.invocationCallOrder[0]).toBeLessThan(
       dependencies.release.mock.invocationCallOrder[0]!,
@@ -513,7 +693,131 @@ describe('AssistantService', () => {
     expect(providerSignal?.aborted).toBe(true);
     expect(returnIterator).toHaveBeenCalledOnce();
     expect(finalizedBeforeUnstall).toBe(false);
+    await vi.waitFor(() => expect(dependencies.release).toHaveBeenCalledOnce());
+  });
+
+  it('releases promptly when delayed provider finalization succeeds after the response ends', async () => {
+    const nextStarted = deferred<void>();
+    const allowReturn = deferred<void>();
+    const iterator = {
+      next: vi.fn(() => {
+        nextStarted.resolve();
+        return new Promise<IteratorResult<string>>(() => undefined);
+      }),
+      return: vi.fn(async () => {
+        await allowReturn.promise;
+        return { done: true as const, value: undefined };
+      }),
+    };
+    const dependencies = createService({
+      deadlineMilliseconds: 20,
+      provider: { stream: () => iterableFrom(iterator) },
+    });
+    const pending = dependencies.service.chat(
+      input,
+      context,
+      new RequestEvents(),
+      new StreamResponse(),
+    );
+    await nextStarted.promise;
+    await pending;
     expect(dependencies.release).not.toHaveBeenCalled();
+
+    allowReturn.resolve();
+
+    await vi.waitFor(() =>
+      expect(dependencies.release).toHaveBeenCalledExactlyOnceWith(lease),
+    );
+  });
+
+  it('renews the token-owned lease while provider work remains active', async () => {
+    vi.useFakeTimers();
+    const nextStarted = deferred<void>();
+    const allowCompletion = deferred<void>();
+    const iterator = {
+      next: vi.fn(async () => {
+        nextStarted.resolve();
+        await allowCompletion.promise;
+        return { done: true as const, value: undefined };
+      }),
+      return: vi.fn(() =>
+        Promise.resolve({ done: true as const, value: undefined }),
+      ),
+    };
+    const dependencies = createService({
+      leaseRenewalMilliseconds: 10,
+      provider: { stream: () => iterableFrom(iterator) },
+    });
+    const pending = dependencies.service.chat(
+      input,
+      context,
+      new RequestEvents(),
+      new StreamResponse(),
+    );
+    await nextStarted.promise;
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(dependencies.renew).toHaveBeenCalledExactlyOnceWith(lease);
+
+    allowCompletion.resolve();
+    await pending;
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(dependencies.renew).toHaveBeenCalledTimes(1);
+    expect(dependencies.release).toHaveBeenCalledExactlyOnceWith(lease);
+  });
+
+  it('aborts provider work and safely logs a lease renewal failure', async () => {
+    vi.useFakeTimers();
+    const nextStarted = deferred<void>();
+    const iterator = {
+      next: vi.fn(() => {
+        nextStarted.resolve();
+        return new Promise<IteratorResult<string>>((resolve) => {
+          // The provider observes the same abort signal through its iterator.
+          setTimeout(() => resolve({ done: true, value: undefined }), 1_000);
+        });
+      }),
+      return: vi.fn(() =>
+        Promise.resolve({ done: true as const, value: undefined }),
+      ),
+    };
+    const dependencies = createService({
+      leaseRenewalMilliseconds: 10,
+      renew: vi.fn(() =>
+        Promise.reject(new Error('safe-key opaque-token redis://private-host')),
+      ),
+      provider: { stream: () => iterableFrom(iterator) },
+    });
+    const response = new StreamResponse();
+    const pending = dependencies.service.chat(
+      input,
+      context,
+      new RequestEvents(),
+      response,
+    );
+    await nextStarted.promise;
+
+    await vi.advanceTimersByTimeAsync(10);
+    await pending;
+
+    expect(events(response).at(-1)).toEqual({
+      type: 'error',
+      data: {
+        code: 'ASSISTANT_PROVIDER_UNAVAILABLE',
+        message: 'The assistant is temporarily unavailable. Please try again.',
+      },
+    });
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_LEASE_RENEW_FAILED',
+        requestId: 'request-1',
+      },
+      'Assistant lease renewal failed',
+    );
+    expect(JSON.stringify(dependencies.logError.mock.calls)).not.toContain(
+      'private-host',
+    );
   });
 
   it('awaits disconnect iterator finalization before releasing its lease', async () => {
@@ -602,16 +906,17 @@ describe('AssistantService', () => {
     expect(dependencies.release).not.toHaveBeenCalled();
   });
 
-  it('keeps the lease for TTL cleanup when iterator finalization cannot be confirmed', async () => {
+  it('stops renewal but leaves TTL cleanup when iterator finalization cannot be confirmed', async () => {
+    vi.useFakeTimers();
     const nextStarted = deferred<void>();
     const iterator = {
       next: vi.fn(() => {
         nextStarted.resolve();
         return new Promise<IteratorResult<string>>(() => undefined);
       }),
-      return: vi.fn(async () => {
-        throw new Error('private iterator cleanup failure');
-      }),
+      return: vi.fn(() =>
+        Promise.reject(new Error('private iterator cleanup failure')),
+      ),
     };
     const dependencies = createService({
       provider: { stream: () => iterableFrom(iterator) },
@@ -627,19 +932,33 @@ describe('AssistantService', () => {
 
     response.disconnect();
     await pending;
+    await vi.advanceTimersByTimeAsync(30_000);
 
     expect(iterator.return).toHaveBeenCalledOnce();
+    expect(dependencies.renew).not.toHaveBeenCalled();
     expect(dependencies.release).not.toHaveBeenCalled();
+    expect(dependencies.logError).toHaveBeenCalledWith(
+      {
+        code: 'ASSISTANT_PROVIDER_FINALIZATION_UNCONFIRMED',
+        requestId: 'request-1',
+      },
+      'Assistant provider finalization was not confirmed',
+    );
   });
 
   it('finalizes the iterator before lease release when a delta cannot be written', async () => {
     const response = new StreamResponse();
     const iterator = {
-      next: vi.fn(async () => {
+      next: vi.fn(() => {
         response.destroyed = true;
-        return { done: false as const, value: 'must not be written' };
+        return Promise.resolve({
+          done: false as const,
+          value: 'must not be written',
+        });
       }),
-      return: vi.fn(async () => ({ done: true as const, value: undefined })),
+      return: vi.fn(() =>
+        Promise.resolve({ done: true as const, value: undefined }),
+      ),
     };
     const dependencies = createService({
       provider: { stream: () => iterableFrom(iterator) },
@@ -661,6 +980,53 @@ describe('AssistantService', () => {
     );
   });
 
+  it('contains a thrown SSE write after headers flush without a second terminal write', async () => {
+    const response = new StreamResponse();
+    const write = vi.spyOn(response, 'write');
+    write.mockImplementationOnce((chunk) => {
+      response.chunks.push(chunk);
+      return true;
+    });
+    write.mockImplementationOnce(() => {
+      throw new Error('EPIPE private socket detail');
+    });
+    const iterator = {
+      next: vi
+        .fn<() => Promise<IteratorResult<string>>>()
+        .mockResolvedValueOnce({ done: false, value: 'first delta' })
+        .mockResolvedValue({ done: true, value: undefined }),
+      return: vi.fn(() =>
+        Promise.resolve({ done: true as const, value: undefined }),
+      ),
+    };
+    const dependencies = createService({
+      provider: { stream: () => iterableFrom(iterator) },
+    });
+
+    await expect(
+      dependencies.service.chat(input, context, new RequestEvents(), response),
+    ).resolves.toBeUndefined();
+
+    expect(events(response)).toEqual([
+      {
+        type: 'sources',
+        data: {
+          sources: [
+            {
+              id: 'session-chunk',
+              file: 'authentication.md',
+              heading: 'Sessions',
+            },
+          ],
+        },
+      },
+    ]);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(response.endCalls).toBe(0);
+    expect(iterator.return).toHaveBeenCalledOnce();
+    expect(dependencies.release).toHaveBeenCalledOnce();
+  });
+
   it('registers disconnect handling before delayed acquire and releases a late lease exactly once', async () => {
     const acquired = deferred<AssistantLease>();
     const acquire = vi.fn(() => acquired.promise);
@@ -679,9 +1045,9 @@ describe('AssistantService', () => {
     acquired.resolve(lease);
     await pending;
 
-    expect(dependencies.load).not.toHaveBeenCalled();
-    expect(dependencies.retrieve).not.toHaveBeenCalled();
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
+    expect(dependencies.load).toHaveBeenCalledOnce();
+    expect(dependencies.retrieve).toHaveBeenCalledOnce();
+    expect(dependencies.providerInvoked).not.toHaveBeenCalled();
     expect(dependencies.release).toHaveBeenCalledExactlyOnceWith(lease);
   });
 
@@ -704,7 +1070,7 @@ describe('AssistantService', () => {
 
     expect(dependencies.acquire).not.toHaveBeenCalled();
     expect(dependencies.load).not.toHaveBeenCalled();
-    expect(dependencies.provider.stream).not.toHaveBeenCalled();
+    expect(dependencies.providerInvoked).not.toHaveBeenCalled();
     expect(dependencies.release).not.toHaveBeenCalled();
   });
 
@@ -761,9 +1127,9 @@ describe('AssistantService', () => {
 
   it('logs only request ID and a stable code when lease cleanup fails', async () => {
     const dependencies = createService({
-      release: vi.fn(async () => {
-        throw new Error('safe-key opaque-token redis://private-host');
-      }),
+      release: vi.fn(() =>
+        Promise.reject(new Error('safe-key opaque-token redis://private-host')),
+      ),
     });
     const response = new StreamResponse();
 

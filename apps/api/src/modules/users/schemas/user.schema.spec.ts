@@ -11,6 +11,17 @@ describe('UserSchema', () => {
     expect(UserSchema.path('email').options.unique).not.toBe(true);
   });
 
+  it('indexes every allowlisted admin sort with a stable id tiebreaker', () => {
+    expect(UserSchema.indexes()).toEqual(
+      expect.arrayContaining([
+        [{ createdAt: 1, _id: 1 }, {}],
+        [{ name: 1, _id: 1 }, {}],
+        [{ email: 1, _id: 1 }, {}],
+        [{ status: 1 }, {}],
+      ]),
+    );
+  });
+
   it('keeps password hashes out of normal selections', () => {
     expect(UserSchema.path('passwordHash').options.select).toBe(false);
   });

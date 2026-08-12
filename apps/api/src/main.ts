@@ -8,7 +8,6 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
-import { AppModule } from './app.module.js';
 import type { AppConfig } from './platform/config/config.schema.js';
 import { DatabaseIndexInitializer } from './platform/database/database-index-initializer.js';
 import { ProblemDetailsFilter } from './platform/errors/problem-details.filter.js';
@@ -20,7 +19,6 @@ type HelmetMiddleware = ReturnType<typeof helmet>;
 type HelmetRequest = Parameters<HelmetMiddleware>[0] & { path: string };
 type HelmetResponse = Parameters<HelmetMiddleware>[1];
 type HelmetNext = Parameters<HelmetMiddleware>[2];
-
 const strictContentSecurityPolicy = {
   directives: {
     defaultSrc: ["'self'"],
@@ -102,24 +100,42 @@ export async function initializeAndListen(
   await app.listen(port, '0.0.0.0');
 }
 
-async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+type ApplicationFactory = () => Promise<NestExpressApplication>;
+
+async function createNestApplication(): Promise<NestExpressApplication> {
+  const { AppModule } = await import('./app.module.js');
+  return NestFactory.create<NestExpressApplication>(AppModule, {
+    abortOnError: false,
     bodyParser: false,
-    bufferLogs: true,
+    logger: false,
   });
-  const config = app.get(ConfigService<AppConfig, true>);
-  app.useLogger(app.get(Logger));
-  configureApplication(
-    app,
-    {
-      TRUST_PROXY_HOPS: config.get('TRUST_PROXY_HOPS', { infer: true }),
-      SWAGGER_ENABLED: config.get('SWAGGER_ENABLED', { infer: true }),
-    },
-    app.get(ProblemDetailsFilter),
-  );
-  await initializeAndListen(app, config.get('PORT', { infer: true }));
 }
 
-if (process.env.VITEST !== 'true') {
-  void bootstrap();
+export async function bootstrap(
+  createApplication: ApplicationFactory = createNestApplication,
+): Promise<void> {
+  const app = await createApplication();
+  try {
+    const config = app.get(ConfigService<AppConfig, true>);
+    app.useLogger(app.get(Logger));
+    configureApplication(
+      app,
+      {
+        TRUST_PROXY_HOPS: config.get('TRUST_PROXY_HOPS', { infer: true }),
+        SWAGGER_ENABLED: config.get('SWAGGER_ENABLED', { infer: true }),
+      },
+      app.get(ProblemDetailsFilter),
+    );
+    await initializeAndListen(app, config.get('PORT', { infer: true }));
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
+}
+
+if (process.env.APP_BOOTSTRAP !== 'false') {
+  void bootstrap().catch(() => {
+    process.stderr.write('Application startup failed.\n');
+    process.exitCode = 1;
+  });
 }

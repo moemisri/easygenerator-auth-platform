@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+import { memo } from 'react';
 
 const assistantMarkdownSchema = {
   tagNames: [
@@ -45,7 +46,11 @@ function safeUrl(url: string) {
     : undefined;
 }
 
-export function SafeMarkdown({ children }: { children: string }) {
+export const SafeMarkdown = memo(function SafeMarkdown({
+  children,
+}: {
+  children: string;
+}) {
   return (
     <div className="safe-markdown">
       <ReactMarkdown
@@ -62,4 +67,4 @@ export function SafeMarkdown({ children }: { children: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

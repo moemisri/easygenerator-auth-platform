@@ -13,7 +13,7 @@ const testEnvironment = {
   ...process.env,
   NODE_ENV: 'test',
   VITEST: 'false',
-  PORT: '3000',
+  PORT: '5173',
   MONGODB_URI:
     'mongodb://127.0.0.1:27018/easygenerator_auth_test?replicaSet=rs0&directConnection=true',
   DB_NAME: testDatabaseName,
@@ -26,6 +26,7 @@ const testEnvironment = {
   LOG_LEVEL: 'silent',
   ASSISTANT_ENABLED: 'false',
   SWAGGER_ENABLED: 'false',
+  SERVE_STATIC_ASSETS: 'true',
 };
 delete testEnvironment.GEMINI_API_KEY;
 delete testEnvironment.GEMINI_MODEL;
@@ -130,7 +131,7 @@ export async function runE2ePlan(plan) {
   let setupTermination = exit(0);
   let playwrightStarted = false;
   let playwrightTermination;
-  let cleanupTermination = exit(0);
+  let cleanupTermination;
 
   const runSetup = async (command) => {
     if (!succeeded(setupTermination) || requestedSignal !== undefined) return;

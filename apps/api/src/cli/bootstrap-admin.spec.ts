@@ -15,10 +15,12 @@ const validEnvironment = {
 
 describe('bootstrap admin entrypoint', () => {
   it('is import-safe and does not require CLI environment during import', async () => {
-    await expect(import('./bootstrap-admin')).resolves.toMatchObject({
-      bootstrapFirstAdmin: expect.any(Function),
-      parseBootstrapAdminEnvironment: expect.any(Function),
-    });
+    const imported = await import('./bootstrap-admin');
+
+    expect(imported.bootstrapFirstAdmin).toBe(bootstrapFirstAdmin);
+    expect(imported.parseBootstrapAdminEnvironment).toBe(
+      parseBootstrapAdminEnvironment,
+    );
   });
 
   it('requires all three variables and validates with signup boundaries', () => {
@@ -57,13 +59,13 @@ describe('bootstrap admin entrypoint', () => {
     const sequence: string[] = [];
     const dbSession = { id: 'transaction' } as unknown as ClientSession;
     const users = {
-      bootstrapConflict: vi.fn(async () => {
+      bootstrapConflict: vi.fn(() => {
         sequence.push('check');
-        return null;
+        return Promise.resolve(null);
       }),
-      createBootstrapAdmin: vi.fn(async () => {
+      createBootstrapAdmin: vi.fn(() => {
         sequence.push('create');
-        return {
+        return Promise.resolve({
           id: 'admin-id',
           email: 'admin@example.com',
           name: 'Administrator',
@@ -72,20 +74,22 @@ describe('bootstrap admin entrypoint', () => {
           version: 0,
           createdAt: '2026-08-01T10:00:00.000Z',
           updatedAt: '2026-08-01T10:00:00.000Z',
-        };
+        });
       }),
     };
     const passwords = {
       hash: vi.fn().mockResolvedValue('argon2-hash'),
     };
     const audit = {
-      record: vi.fn(async () => {
+      record: vi.fn(() => {
         sequence.push('audit');
+        return Promise.resolve();
       }),
     };
     const security = {
-      incrementSecurityRevision: vi.fn(async () => {
+      incrementSecurityRevision: vi.fn(() => {
         sequence.push('security');
+        return Promise.resolve();
       }),
     };
     const connection = {

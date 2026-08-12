@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
-import { AppError } from '../../platform/errors/app-error.js';
 import type {
   AssistantCorpus,
   CorpusChunk,
   RetrievalResult,
   RetrievedChunk,
 } from './assistant.types.js';
-import { MAX_SELECTED_EXCERPT_CHARACTERS } from './assistant.types.js';
+import { fitExcerptChunks } from './assistant.types.js';
 
 export const ASSISTANT_STOP_WORDS = new Set([
   'a',
@@ -127,14 +126,7 @@ export class RetrieverService {
       };
     }
 
-    const selected = ranked.slice(0, 4);
-    const excerptCharacters = selected.reduce(
-      (sum, chunk) => sum + chunk.content.length,
-      0,
-    );
-    if (excerptCharacters > MAX_SELECTED_EXCERPT_CHARACTERS) {
-      throw new AppError('ASSISTANT_CORPUS_UNAVAILABLE', 503);
-    }
+    const selected = fitExcerptChunks(ranked);
 
     return {
       kind: 'answer',

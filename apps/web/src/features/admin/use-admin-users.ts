@@ -6,6 +6,8 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { adminApi } from './admin-api';
 
+const ADMIN_DATA_STALE_TIME_MS = 30_000;
+
 export const adminQueryKeys = {
   users: (query: AdminUsersQuery) => ['admin', 'users', query] as const,
   auditEvents: (query: AdminAuditEventsQuery) =>
@@ -17,6 +19,8 @@ export function useAdminUsers(query: AdminUsersQuery) {
     queryKey: adminQueryKeys.users(query),
     queryFn: ({ signal }) => adminApi.users(query, signal),
     placeholderData: keepPreviousData,
+    staleTime: ADMIN_DATA_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -25,5 +29,7 @@ export function useAdminAuditEvents(query: AdminAuditEventsQuery) {
     queryKey: adminQueryKeys.auditEvents(query),
     queryFn: ({ signal }) => adminApi.auditEvents(query, signal),
     placeholderData: keepPreviousData,
+    staleTime: ADMIN_DATA_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
   });
 }

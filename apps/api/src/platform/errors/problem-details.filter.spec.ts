@@ -4,7 +4,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppError } from './app-error';
 import { RateLimitExceededError } from '../redis/rate-limit-exceeded.error';
@@ -170,17 +170,20 @@ describe('mapProblem', () => {
 
     expect(responseStatus).toBeGreaterThanOrEqual(500);
     expect(responseBody).toMatchObject({ requestId: 'request-correlated' });
-    expect(events).toEqual([
-      {
-        context: {
-          code: expect.any(String),
-          errorType: expect.any(String),
-          requestId: 'request-correlated',
-          status: expect.any(Number),
-        },
-        message: 'Unexpected request failure',
-      },
-    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.message).toBe('Unexpected request failure');
+    expect(events[0]?.context).toMatchObject({
+      requestId: 'request-correlated',
+    });
+    expect(typeof (events[0]?.context as { code?: unknown }).code).toBe(
+      'string',
+    );
+    expect(
+      typeof (events[0]?.context as { errorType?: unknown }).errorType,
+    ).toBe('string');
+    expect(typeof (events[0]?.context as { status?: unknown }).status).toBe(
+      'number',
+    );
     expect(JSON.stringify(events)).not.toContain('secret');
     expect(JSON.stringify(events)).not.toContain('unsafe');
     expect(JSON.stringify(events)).not.toContain('password');
@@ -206,6 +209,53 @@ describe('mapProblem', () => {
     );
 
     expect(events).toEqual([]);
+  });
+
+  it('ends a flushed error response without rewriting status, headers, or JSON', () => {
+    const events: Array<{ context: object; message: string }> = [];
+    const end = vi.fn();
+    const response = {
+      headersSent: true,
+      writableEnded: false,
+      end,
+      setHeader: vi.fn(() => {
+        throw new Error('headers must not be rewritten');
+      }),
+      status: vi.fn(() => {
+        throw new Error('status must not be rewritten');
+      }),
+    };
+    const host = {
+      switchToHttp: () => ({
+        getRequest: () => ({
+          id: 'request-flushed',
+          originalUrl: '/api/v1/assistant/chat',
+        }),
+        getResponse: () => response,
+      }),
+    } as ArgumentsHost;
+
+    expect(() =>
+      new ProblemDetailsFilter({
+        error: (context, message) => events.push({ context, message }),
+      }).catch(new Error('socket write failed with secret'), host),
+    ).not.toThrow();
+
+    expect(end).toHaveBeenCalledOnce();
+    expect(response.setHeader).not.toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalled();
+    expect(events).toEqual([
+      {
+        context: {
+          code: 'INTERNAL_ERROR',
+          errorType: 'Error',
+          requestId: 'request-flushed',
+          status: 500,
+        },
+        message: 'Unexpected request failure',
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain('secret');
   });
 
   it('sets Retry-After for a blocked fixed window', () => {

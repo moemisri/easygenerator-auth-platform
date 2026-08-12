@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import type { Role } from '@easygenerator/contracts';
+import { http, HttpResponse } from 'msw';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
@@ -8,6 +10,7 @@ import { AuthProvider } from '../features/auth/AuthProvider';
 import { authApi } from '../features/auth/auth-api';
 import { createQueryClient } from './query-client';
 import { AppRouter } from './router';
+import { server } from '../test/server';
 
 function sessionFor(role: Role, assistant = false) {
   return {
@@ -45,12 +48,23 @@ function renderAppAt(path: string, role?: Role, assistant = false) {
 }
 
 describe('App', () => {
-  it('renders the product entry point', () => {
+  it('renders the product entry point', async () => {
     renderAppAt('/signin');
 
     expect(
-      screen.getByRole('heading', { name: /sign in to continue/i }),
+      await screen.findByRole('heading', { name: /sign in to continue/i }),
     ).toBeVisible();
+  });
+
+  it('redirects an authenticated visitor away from authentication pages', async () => {
+    renderAppAt('/signin', 'USER');
+
+    expect(
+      await screen.findByText('Welcome to the application.'),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('heading', { name: /sign in to continue/i }),
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -168,5 +182,45 @@ describe('App', () => {
     expect(
       screen.queryByRole('heading', { name: 'Ask the documentation.' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('returns an anonymous visitor to the originally requested route after sign-in', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post('/api/v1/auth/signin', () =>
+        HttpResponse.json(sessionFor('USER', true)),
+      ),
+    );
+    renderAppAt('/assistant');
+    await user.type(await screen.findByLabelText(/email/i), 'user@example.com');
+    await user.type(screen.getByLabelText(/^password$/i), 'Secure1!');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ask the documentation.' }),
+    ).toBeVisible();
+  });
+
+  it('preserves the requested route when the visitor switches to sign-up', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post('/api/v1/auth/signup', () =>
+        HttpResponse.json(sessionFor('USER', true)),
+      ),
+    );
+    renderAppAt('/assistant');
+
+    await user.click(
+      await screen.findByRole('link', { name: 'Create an account' }),
+    );
+    await screen.findByRole('heading', { name: 'Set up your account.' });
+    await user.type(screen.getByLabelText(/email/i), 'user@example.com');
+    await user.type(screen.getByLabelText(/^name/i), 'User operator');
+    await user.type(screen.getByLabelText(/^password$/i), 'Secure1!');
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Ask the documentation.' }),
+    ).toBeVisible();
   });
 });

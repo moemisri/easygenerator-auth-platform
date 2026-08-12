@@ -60,7 +60,11 @@ describe('AuthService', () => {
     revoke: ReturnType<typeof vi.fn>;
   };
   let audit: { record: ReturnType<typeof vi.fn> };
-  let rateLimiter: { consume: ReturnType<typeof vi.fn> };
+  let rateLimiter: {
+    consume: ReturnType<typeof vi.fn>;
+    consumeMany: ReturnType<typeof vi.fn>;
+    inspect: ReturnType<typeof vi.fn>;
+  };
   let privacyKeys: { digest: ReturnType<typeof vi.fn> };
   let connection: { transaction: ReturnType<typeof vi.fn> };
   let service: AuthService;
@@ -95,6 +99,15 @@ describe('AuthService', () => {
         remaining: 4,
         retryAfterSeconds: 0,
       }),
+      consumeMany: vi.fn().mockResolvedValue([
+        { allowed: true, remaining: 9, retryAfterSeconds: 0 },
+        { allowed: true, remaining: 4, retryAfterSeconds: 0 },
+      ]),
+      inspect: vi.fn().mockResolvedValue({
+        allowed: true,
+        remaining: 4,
+        retryAfterSeconds: 0,
+      }),
     };
     const realPrivacyKeys = new PrivacyKeyDigestService({
       getOrThrow: (key: string) => {
@@ -108,8 +121,8 @@ describe('AuthService', () => {
       digest: vi.fn(realPrivacyKeys.digest.bind(realPrivacyKeys)),
     };
     connection = {
-      transaction: vi.fn(async (work: (session: unknown) => unknown) =>
-        work(transactionSession),
+      transaction: vi.fn((work: (session: unknown) => unknown) =>
+        Promise.resolve(work(transactionSession)),
       ),
     };
     service = new AuthService(
@@ -209,7 +222,7 @@ describe('AuthService', () => {
         status: 503,
       }),
     );
-    expect(rateLimiter.consume).not.toHaveBeenCalled();
+    expect(rateLimiter.consumeMany).not.toHaveBeenCalled();
     expect(passwords.hash).not.toHaveBeenCalled();
   });
 
@@ -314,34 +327,33 @@ describe('AuthService', () => {
     );
   });
 
-  it('rate-limits signin by IP and HMAC email digest without exposing the identity', async () => {
+  it('inspects signin limits without consuming success capacity or exposing identity', async () => {
     await service.signIn(signinInput, requestContext);
 
-    expect(rateLimiter.consume).toHaveBeenNthCalledWith(
+    expect(rateLimiter.inspect).toHaveBeenNthCalledWith(
       1,
       `auth:signin:ip:${signinIpDigest}`,
       10,
-      900,
     );
-    expect(rateLimiter.consume).toHaveBeenNthCalledWith(
+    expect(rateLimiter.inspect).toHaveBeenNthCalledWith(
       2,
       `auth:signin:identity:${signinIdentityDigest}`,
       5,
-      900,
     );
     expect(privacyKeys.digest.mock.calls).toEqual([
       ['auth:signin:ip', '203.0.113.42'],
       ['auth:signin:identity', 'ada@example.com'],
     ]);
-    expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
+    expect(JSON.stringify(rateLimiter.inspect.mock.calls)).not.toContain(
       'Ada@Example.com',
     );
-    expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
+    expect(JSON.stringify(rateLimiter.inspect.mock.calls)).not.toContain(
       'ada@example.com',
     );
-    expect(JSON.stringify(rateLimiter.consume.mock.calls)).not.toContain(
+    expect(JSON.stringify(rateLimiter.inspect.mock.calls)).not.toContain(
       '203.0.113.42',
     );
+    expect(rateLimiter.consume).not.toHaveBeenCalled();
   });
 
   it('audits failed signin with only the HMAC identity digest', async () => {
@@ -360,10 +372,40 @@ describe('AuthService', () => {
       'Ada@Example.com',
     );
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain('Secure1!');
+    expect(rateLimiter.consumeMany).toHaveBeenCalledWith([
+      {
+        key: `auth:signin:ip:${signinIpDigest}`,
+        limit: 10,
+        windowSeconds: 900,
+      },
+      {
+        key: `auth:signin:identity:${signinIdentityDigest}`,
+        limit: 5,
+        windowSeconds: 900,
+      },
+    ]);
+  });
+
+  it('returns 429 when the atomic failed-signin charge exhausts either budget', async () => {
+    users.findForAuthentication.mockResolvedValue(null);
+    passwords.verify.mockResolvedValue(false);
+    rateLimiter.consumeMany.mockResolvedValue([
+      { allowed: false, remaining: 0, retryAfterSeconds: 120 },
+      { allowed: false, remaining: 0, retryAfterSeconds: 240 },
+    ]);
+
+    await expect(
+      service.signIn(signinInput, requestContext),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      retryAfterSeconds: 240,
+    });
+    expect(audit.record).not.toHaveBeenCalled();
   });
 
   it('uses the longest blocked signin window and does no password work', async () => {
-    rateLimiter.consume
+    rateLimiter.inspect
       .mockResolvedValueOnce({
         allowed: false,
         remaining: 0,
@@ -387,7 +429,7 @@ describe('AuthService', () => {
   });
 
   it('fails signin closed when either Redis limit is unavailable', async () => {
-    rateLimiter.consume
+    rateLimiter.inspect
       .mockResolvedValueOnce({
         allowed: true,
         remaining: 9,
@@ -404,6 +446,21 @@ describe('AuthService', () => {
     expect(users.findForAuthentication).not.toHaveBeenCalled();
   });
 
+  it('fails closed if consuming a failed signin cannot reach Redis', async () => {
+    users.findForAuthentication.mockResolvedValue(null);
+    passwords.verify.mockResolvedValue(false);
+    rateLimiter.consumeMany.mockRejectedValue(new Error('redis unavailable'));
+
+    await expect(service.signIn(signinInput, requestContext)).rejects.toEqual(
+      expect.objectContaining({
+        code: 'AUTH_PROTECTION_UNAVAILABLE',
+        status: 503,
+      }),
+    );
+    expect(passwords.verify).toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it('fails signin closed without Redis access when either digest fails', async () => {
     privacyKeys.digest.mockImplementation((scope: string) => {
       if (scope === 'auth:signin:identity') {
@@ -418,7 +475,7 @@ describe('AuthService', () => {
         status: 503,
       }),
     );
-    expect(rateLimiter.consume).not.toHaveBeenCalled();
+    expect(rateLimiter.consumeMany).not.toHaveBeenCalled();
     expect(users.findForAuthentication).not.toHaveBeenCalled();
   });
 

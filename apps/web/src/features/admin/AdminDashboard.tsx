@@ -4,7 +4,7 @@ import type {
   UserPage,
 } from '@easygenerator/contracts';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { Button } from '../../components/Button';
@@ -35,13 +35,16 @@ export function AdminDashboard() {
   const [search, setSearch] = useState(committedSearch);
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const staleNoticeRef = useRef<HTMLParagraphElement>(null);
-  const query: AdminUsersQuery = {
-    page,
-    pageSize: PAGE_SIZE,
-    search: committedSearch || undefined,
-    sort: DEFAULT_SORT,
-    direction: DEFAULT_DIRECTION,
-  };
+  const query = useMemo<AdminUsersQuery>(
+    () => ({
+      page,
+      pageSize: PAGE_SIZE,
+      search: committedSearch || undefined,
+      sort: DEFAULT_SORT,
+      direction: DEFAULT_DIRECTION,
+    }),
+    [committedSearch, page],
+  );
   const users = useAdminUsers(query);
   const audits = useAdminAuditEvents({ page: 1, pageSize: PAGE_SIZE });
 
@@ -110,27 +113,31 @@ export function AdminDashboard() {
 
   return (
     <div className="admin-dashboard">
-      {staleNotice && (
-        <p
-          ref={staleNoticeRef}
-          className="action-notice"
-          aria-live="polite"
-          tabIndex={-1}
-        >
-          {staleNotice}
-        </p>
-      )}
+      <p
+        ref={staleNoticeRef}
+        className="action-notice"
+        aria-live="polite"
+        tabIndex={-1}
+      >
+        {staleNotice ?? ''}
+      </p>
       <section className="admin-summary" aria-labelledby="directory-heading">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Directory register</p>
             <h2 id="directory-heading">People and access</h2>
           </div>
-          {users.isFetching && !users.isPending && (
-            <p role="status" className="quiet-status">
-              Updating results
-            </p>
-          )}
+          <p
+            role="status"
+            aria-label="User directory status"
+            className="quiet-status"
+          >
+            {users.isPending
+              ? 'Loading users…'
+              : users.isFetching
+                ? 'Updating results'
+                : ''}
+          </p>
         </div>
 
         {users.data && (
@@ -157,7 +164,6 @@ export function AdminDashboard() {
           />
         </label>
 
-        {users.isPending && <p role="status">Loading users…</p>}
         {users.isError && (
           <div className="load-problem">
             <ProblemAlert message="Unable to load users. Please retry." />
@@ -216,13 +222,18 @@ export function AdminDashboard() {
             <p className="eyebrow">Redacted record</p>
             <h2 id="audit-heading">Recent audit events</h2>
           </div>
-          {audits.isFetching && !audits.isPending && (
-            <p role="status" className="quiet-status">
-              Updating audit events
-            </p>
-          )}
+          <p
+            role="status"
+            aria-label="Audit timeline status"
+            className="quiet-status"
+          >
+            {audits.isPending
+              ? 'Loading audit events…'
+              : audits.isFetching
+                ? 'Updating audit events'
+                : ''}
+          </p>
         </div>
-        {audits.isPending && <p role="status">Loading audit events…</p>}
         {audits.isError && (
           <div className="load-problem">
             <ProblemAlert message="Unable to load audit events. Please retry." />

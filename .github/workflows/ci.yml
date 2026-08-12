@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -33,6 +35,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: node scripts/scan-secrets.mjs --tracked
+      - run: node scripts/scan-secrets.mjs --reachable HEAD
       - run: node scripts/validate-render-blueprint.mjs
 
   unit:
@@ -49,12 +53,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: mkdir -p test-results/unit test-results/coverage/contracts test-results/coverage/api test-results/coverage/web
-      - run: NODE_V8_COVERAGE=${{ github.workspace }}/test-results/coverage/contracts pnpm --filter @easygenerator/contracts exec vitest run --reporter=junit --outputFile=../../test-results/unit/contracts.xml
-      - run: NODE_V8_COVERAGE=${{ github.workspace }}/test-results/coverage/api pnpm --filter @easygenerator/api exec vitest run --reporter=junit --outputFile=../../test-results/unit/api.xml
-      - run: NODE_V8_COVERAGE=${{ github.workspace }}/test-results/coverage/web pnpm --filter @easygenerator/web exec vitest run --reporter=junit --outputFile=../../test-results/unit/web.xml
+      - run: pnpm --filter @easygenerator/contracts exec vitest run --coverage --reporter=junit --outputFile=../../test-results/unit/contracts.xml --coverage.reportsDirectory=../../test-results/coverage/contracts
+      - run: pnpm --filter @easygenerator/api test -- --coverage --reporter=junit --outputFile=../../test-results/unit/api.xml --coverage.reportsDirectory=../../test-results/coverage/api
+      - run: pnpm --filter @easygenerator/web exec vitest run --coverage --reporter=junit --outputFile=../../test-results/unit/web.xml --coverage.reportsDirectory=../../test-results/coverage/web
       - name: Publish measured test summary
         if: always()
-        run: node scripts/summarize-unit-tests.mjs test-results/unit >> "$GITHUB_STEP_SUMMARY" && node scripts/summarize-v8-coverage.mjs test-results/coverage >> "$GITHUB_STEP_SUMMARY"
+        run: node scripts/summarize-unit-tests.mjs test-results/unit >> "$GITHUB_STEP_SUMMARY" || true
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,11 +66,11 @@ jobs:
           name: unit-test-reports
           path: test-results/unit
           if-no-files-found: error
-      - name: Upload V8 coverage artifacts
+      - name: Upload source coverage artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-v8-coverage
+          name: unit-source-coverage
           path: test-results/coverage
           if-no-files-found: error
 
@@ -119,7 +123,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm build
       - run: pnpm e2e
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: test-results/playwright
+          if-no-files-found: warn
       - name: Ensure browser cleanup
         if: always()
         run: docker compose -f compose.test.yaml down --volumes

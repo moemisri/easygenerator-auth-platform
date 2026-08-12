@@ -114,10 +114,6 @@ export class UsersService {
     return user === null ? null : safeUser(user);
   }
 
-  async countActiveAdmins(dbSession: ClientSession): Promise<number> {
-    return this.users.countActiveAdmins(dbSession);
-  }
-
   async bootstrapConflict(
     email: string,
     dbSession: ClientSession,

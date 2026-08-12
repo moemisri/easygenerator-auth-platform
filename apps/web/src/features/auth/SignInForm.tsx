@@ -2,16 +2,19 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { signinSchema, type SigninInput } from '@easygenerator/contracts';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ApiProblem } from '../../lib/api-client';
 import { Button } from '../../components/Button';
 import { Field } from '../../components/Field';
 import { PasswordField } from '../../components/PasswordField';
 import { ProblemAlert } from '../../components/ProblemAlert';
 import { useAuth } from './AuthProvider';
+import { requestedPath } from './auth-navigation';
 
 export function SignInForm() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationState = location.state as unknown;
   const { signIn } = useAuth();
   const [problem, setProblem] = useState<ApiProblem | undefined>();
   const {
@@ -23,7 +26,7 @@ export function SignInForm() {
     setProblem(undefined);
     try {
       await signIn(input);
-      navigate('/app');
+      void navigate(requestedPath(navigationState), { replace: true });
     } catch (error) {
       setProblem(
         error instanceof ApiProblem
@@ -37,14 +40,22 @@ export function SignInForm() {
       ? 'Check your email and password and try again.'
       : problem?.title;
   return (
-    <form noValidate onSubmit={onSubmit} className="auth-form">
+    <form
+      noValidate
+      onSubmit={(event) => void onSubmit(event)}
+      className="auth-form"
+    >
       <div className="form-header">
         <p className="eyebrow">Secure access</p>
         <h1>Sign in to continue.</h1>
         <p>Use your team account to enter the application.</p>
       </div>
       {message && (
-        <ProblemAlert message={message} retryAfter={problem?.retryAfter} />
+        <ProblemAlert
+          message={message}
+          retryAfter={problem?.retryAfter}
+          autoFocus
+        />
       )}
       <Field
         label="Email"
@@ -63,7 +74,10 @@ export function SignInForm() {
         Sign in
       </Button>
       <p className="form-switch">
-        New here? <Link to="/signup">Create an account</Link>
+        New here?{' '}
+        <Link to="/signup" state={navigationState}>
+          Create an account
+        </Link>
       </p>
     </form>
   );

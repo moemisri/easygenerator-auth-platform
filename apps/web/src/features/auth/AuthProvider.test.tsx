@@ -156,6 +156,35 @@ describe('AuthProvider', () => {
     expect(screen.getByText('authenticated')).toBeVisible();
   });
 
+  it('clears data cached for a previous identity before accepting sign-in', async () => {
+    const user = userEvent.setup();
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(['previous-user', 'private'], {
+      value: 'sensitive',
+    });
+    server.use(
+      http.post('/api/v1/auth/signin', () => HttpResponse.json(adminSession)),
+    );
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AuthProvider restoreSession={() => Promise.resolve(null)}>
+            <AuthStateControls />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Establish admin session' }),
+    );
+    expect(await screen.findByText('authenticated')).toBeVisible();
+    expect(
+      queryClient.getQueryData(['previous-user', 'private']),
+    ).toBeUndefined();
+  });
+
   it('deduplicates session restoration under StrictMode', async () => {
     let sessionRequests = 0;
     server.use(
@@ -451,7 +480,12 @@ describe('AuthProvider', () => {
       await user.click(
         screen.getByRole('button', { name: 'Establish admin session' }),
       );
-      expect(await screen.findByText(sensitiveSentinel)).toBeVisible();
+      await vi.waitFor(() =>
+        expect(screen.getByTestId('auth-status')).toHaveTextContent(
+          'authenticated',
+        ),
+      );
+      expect(queryClient.getQueryData(adminCacheKey)).toBeUndefined();
       await adminRequestStarted.promise;
 
       releaseAdminRequest.resolve();

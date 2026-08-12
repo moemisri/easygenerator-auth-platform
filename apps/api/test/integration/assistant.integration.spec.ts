@@ -8,10 +8,15 @@ import { ConfigService } from '@nestjs/config';
 import { getConnectionToken } from '@nestjs/mongoose';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import {
+  authSessionResponseSchema,
+  problemDetailsSchema,
+  type ProblemDetails,
+} from '@easygenerator/contracts';
 import type Redis from 'ioredis';
 import type { Connection } from 'mongoose';
 import { Logger } from 'nestjs-pino';
-import request from 'supertest';
+import request, { type Response } from 'supertest';
 import {
   afterAll,
   beforeAll,
@@ -25,6 +30,7 @@ import {
 import { AppModule } from '../../src/app.module';
 import { configureApplication } from '../../src/main';
 import { AssistantConcurrencyService } from '../../src/modules/assistant/assistant-concurrency.service';
+import { AssistantRateLimiterService } from '../../src/modules/assistant/assistant-rate-limiter.service';
 import { ASSISTANT_DEADLINE_MILLISECONDS } from '../../src/modules/assistant/assistant.service';
 import {
   ASSISTANT_PROVIDER,
@@ -51,6 +57,23 @@ const validSignup = {
 interface ProviderCall {
   input: AssistantProviderInput;
   signal: AbortSignal;
+}
+
+function asyncIterableOf(...values: string[]): AsyncIterable<string> {
+  let index = 0;
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => {
+        const value = values[index];
+        index += 1;
+        return Promise.resolve(
+          value === undefined
+            ? { done: true as const, value: undefined }
+            : { done: false as const, value },
+        );
+      },
+    }),
+  };
 }
 
 class FakeAssistantProvider implements AssistantProvider {
@@ -162,17 +185,12 @@ class FakeAssistantProvider implements AssistantProvider {
     }
     if (currentMessage.includes('failure')) {
       const iterator: AsyncIterator<string> = {
-        next: async () => {
-          throw new Error('private fake provider body');
-        },
-        return: async () => ({ done: true, value: undefined }),
+        next: () => Promise.reject(new Error('private fake provider body')),
+        return: () => Promise.resolve({ done: true, value: undefined }),
       };
       return { [Symbol.asyncIterator]: () => iterator };
     }
-    return (async function* () {
-      yield 'Sessions are ';
-      yield 'stored server-side.';
-    })();
+    return asyncIterableOf('Sessions are ', 'stored server-side.');
   }
 }
 
@@ -183,8 +201,13 @@ function parseSse(text: string): Array<{ type: string; data: unknown }> {
     .map((frame) => {
       const match = /^event: ([^\n]+)\ndata: ([^\n]+)$/.exec(frame);
       if (match === null) throw new Error(`Invalid SSE frame: ${frame}`);
-      return { type: match[1]!, data: JSON.parse(match[2]!) };
+      const data: unknown = JSON.parse(match[2]!);
+      return { type: match[1]!, data };
     });
+}
+
+function problem(response: Response): ProblemDetails {
+  return problemDetailsSchema.parse(response.body);
 }
 
 function dockerCompose(...arguments_: string[]): void {
@@ -299,10 +322,11 @@ async function signUp(app: NestExpressApplication): Promise<SignedInUser> {
     .set('Origin', appOrigin)
     .send(validSignup)
     .expect(201);
+  const body = authSessionResponseSchema.parse(response.body);
   return {
     agent,
-    csrfToken: response.body.csrfToken as string,
-    userId: response.body.user.id as string,
+    csrfToken: body.csrfToken,
+    userId: body.user.id,
   };
 }
 
@@ -320,7 +344,8 @@ function chat(
 
 describe('assistant HTTP API', () => {
   const provider = new FakeAssistantProvider();
-  const disabledProvider: AssistantProvider = { stream: vi.fn() };
+  const disabledStream = vi.fn((): AsyncIterable<string> => asyncIterableOf());
+  const disabledProvider: AssistantProvider = { stream: disabledStream };
   const googleFactory = vi.fn();
   let app: NestExpressApplication;
   let disabledApp: NestExpressApplication;
@@ -337,7 +362,7 @@ describe('assistant HTTP API', () => {
   beforeEach(async () => {
     await resetDatastores(app);
     provider.reset();
-    vi.mocked(disabledProvider.stream).mockClear();
+    disabledStream.mockClear();
     googleFactory.mockClear();
   });
 
@@ -351,14 +376,14 @@ describe('assistant HTTP API', () => {
       .post('/api/v1/assistant/chat')
       .send({ message: 'sessions' })
       .expect(403);
-    expect(missingOrigin.body.code).toBe('HTTP_403');
+    expect(problem(missingOrigin).code).toBe('HTTP_403');
 
     const missingSession = await request(app.getHttpServer())
       .post('/api/v1/assistant/chat')
       .set('Origin', appOrigin)
       .send({ message: 'sessions' })
       .expect(401);
-    expect(missingSession.body.code).toBe('UNAUTHENTICATED');
+    expect(problem(missingSession).code).toBe('UNAUTHENTICATED');
 
     const signedIn = await signUp(app);
     const missingCsrf = await signedIn.agent
@@ -366,7 +391,7 @@ describe('assistant HTTP API', () => {
       .set('Origin', appOrigin)
       .send({ message: 'sessions' })
       .expect(403);
-    expect(missingCsrf.body.code).toBe('CSRF_VALIDATION_FAILED');
+    expect(problem(missingCsrf).code).toBe('CSRF_VALIDATION_FAILED');
     expect(provider.calls).toHaveLength(0);
   });
 
@@ -374,12 +399,12 @@ describe('assistant HTTP API', () => {
     const signedIn = await signUp(disabledApp);
     const response = await chat(signedIn, 'sessions').expect(404);
 
-    expect(response.body).toMatchObject({
+    expect(problem(response)).toMatchObject({
       code: 'ASSISTANT_DISABLED',
       status: 404,
     });
     expect(response.headers['cache-control']).toBe('no-store');
-    expect(disabledProvider.stream).not.toHaveBeenCalled();
+    expect(disabledStream).not.toHaveBeenCalled();
     expect(googleFactory).not.toHaveBeenCalled();
   });
 
@@ -392,7 +417,7 @@ describe('assistant HTTP API', () => {
       .send({ message: 'sessions', history: [], tools: [] })
       .expect(400);
 
-    expect(response.body.code).toBe('VALIDATION_ERROR');
+    expect(problem(response).code).toBe('VALIDATION_ERROR');
     expect(response.headers['cache-control']).toBe('no-store');
     expect(provider.calls).toHaveLength(0);
   });
@@ -424,9 +449,11 @@ describe('assistant HTTP API', () => {
     );
     expect(keys).toHaveLength(1);
     const value = await redis.get(keys[0]!);
-    expect(JSON.parse(value!)).toEqual(
-      expect.arrayContaining([expect.any(String)]),
-    );
+    if (value === null) throw new Error('Expected a cached retrieval value');
+    const cachedIds: unknown = JSON.parse(value);
+    if (!Array.isArray(cachedIds)) throw new Error('Expected cached chunk IDs');
+    expect(cachedIds).not.toHaveLength(0);
+    expect(cachedIds.every((id) => typeof id === 'string')).toBe(true);
     expect(value).not.toContain('sessions');
     expect(keys[0]).not.toContain('sessions');
   });
@@ -454,6 +481,47 @@ describe('assistant HTTP API', () => {
     expect(JSON.stringify(event)).not.toContain(sentinel);
   });
 
+  it('atomically charges real Redis budgets while isolating an exhausted user', async () => {
+    const limiter = app.get(AssistantRateLimiterService);
+    const redis = app.get<Redis>(REDIS);
+    const admittedUser = 'assistant-rate-admitted-user';
+    const unrelatedUser = 'assistant-rate-unrelated-user';
+    const requestIp = '192.0.2.44';
+    const admittedUserKey = `easygenerator:test:assistant:rate:user:${privacyDigest(
+      'assistant:rate:user',
+      admittedUser,
+    )}`;
+    const unrelatedUserKey = `easygenerator:test:assistant:rate:user:${privacyDigest(
+      'assistant:rate:user',
+      unrelatedUser,
+    )}`;
+    const ipKey = `easygenerator:test:assistant:rate:ip:${privacyDigest(
+      'assistant:rate:ip',
+      requestIp,
+    )}`;
+    const globalKey = 'easygenerator:test:assistant:rate:global';
+
+    await expect(
+      limiter.enforce(admittedUser, requestIp),
+    ).resolves.toBeUndefined();
+    await expect(
+      redis.mget(admittedUserKey, ipKey, globalKey),
+    ).resolves.toEqual(['1', '1', '1']);
+
+    await redis.set(admittedUserKey, '10', 'EX', 60);
+    await expect(
+      limiter.enforce(admittedUser, requestIp),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED', status: 429 });
+    await expect(redis.mget(ipKey, globalKey)).resolves.toEqual(['1', '1']);
+
+    await expect(
+      limiter.enforce(unrelatedUser, requestIp),
+    ).resolves.toBeUndefined();
+    await expect(
+      redis.mget(unrelatedUserKey, ipKey, globalKey),
+    ).resolves.toEqual(['1', '2', '2']);
+  });
+
   it('allows ten requests and rate-limits eleven with Retry-After', async () => {
     const signedIn = await signUp(app);
     for (let attempt = 1; attempt <= 10; attempt += 1) {
@@ -461,7 +529,7 @@ describe('assistant HTTP API', () => {
     }
     const denied = await chat(signedIn, 'sessions').expect(429);
 
-    expect(denied.body.code).toBe('RATE_LIMITED');
+    expect(problem(denied).code).toBe('RATE_LIMITED');
     expect(Number(denied.headers['retry-after'])).toBeGreaterThan(0);
     expect(Number(denied.headers['retry-after'])).toBeLessThanOrEqual(60);
     expect(provider.calls).toHaveLength(10);
@@ -469,13 +537,52 @@ describe('assistant HTTP API', () => {
       app.get<Redis>(REDIS),
       'easygenerator:test:assistant:rate:*',
     );
-    expect(keys).toEqual([
-      `easygenerator:test:assistant:rate:${privacyDigest(
-        'assistant:rate:actor',
+    expect(keys).toHaveLength(3);
+    expect(keys).toContain('easygenerator:test:assistant:rate:global');
+    expect(keys).toContain(
+      `easygenerator:test:assistant:rate:user:${privacyDigest(
+        'assistant:rate:user',
         signedIn.userId,
       )}`,
-    ]);
-    expect(keys[0]).not.toContain(signedIn.userId);
+    );
+    expect(
+      keys.filter((key) =>
+        key.startsWith('easygenerator:test:assistant:rate:ip:'),
+      ),
+    ).toHaveLength(1);
+    expect(JSON.stringify(keys)).not.toContain(signedIn.userId);
+    expect(JSON.stringify(keys)).not.toContain(validSignup.email);
+  });
+
+  it('enforces the shared IP assistant budget before provider access', async () => {
+    const signedIn = await signUp(app);
+    await chat(signedIn, 'sessions').expect(200);
+    const redis = app.get<Redis>(REDIS);
+    const ipKeys = await scanKeys(
+      redis,
+      'easygenerator:test:assistant:rate:ip:*',
+    );
+    expect(ipKeys).toHaveLength(1);
+    await redis.set(ipKeys[0]!, '30', 'EX', 60);
+
+    const denied = await chat(signedIn, 'sessions').expect(429);
+
+    expect(problem(denied).code).toBe('RATE_LIMITED');
+    expect(Number(denied.headers['retry-after'])).toBeGreaterThan(0);
+    expect(provider.calls).toHaveLength(1);
+  });
+
+  it('enforces the global assistant budget before provider access', async () => {
+    const signedIn = await signUp(app);
+    await app
+      .get<Redis>(REDIS)
+      .set('easygenerator:test:assistant:rate:global', '100', 'EX', 60);
+
+    const denied = await chat(signedIn, 'sessions').expect(429);
+
+    expect(problem(denied).code).toBe('RATE_LIMITED');
+    expect(Number(denied.headers['retry-after'])).toBeGreaterThan(0);
+    expect(provider.calls).toHaveLength(0);
   });
 
   it('fails closed before provider access when Redis is unavailable', async () => {
@@ -484,7 +591,9 @@ describe('assistant HTTP API', () => {
     dockerCompose('stop', 'redis-test');
     try {
       const unavailable = await chat(signedIn, 'sessions').expect(503);
-      expect(unavailable.body.code).toBe('ASSISTANT_PROTECTION_UNAVAILABLE');
+      expect(problem(unavailable).code).toBe(
+        'ASSISTANT_PROTECTION_UNAVAILABLE',
+      );
       expect(unavailable.headers['cache-control']).toBe('no-store');
       expect(provider.calls).toHaveLength(0);
     } finally {
@@ -496,14 +605,11 @@ describe('assistant HTTP API', () => {
   it('rejects a same-user concurrent stream and permits a later stream', async () => {
     const signedIn = await signUp(app);
     const first = chat(signedIn, 'sessions contention');
-    const firstCompletion = first.then(
-      (response) => response,
-      (error: unknown) => Promise.reject(error),
-    );
+    const firstCompletion = first.then((response) => response);
     await provider.started;
 
     const contention = await chat(signedIn, 'sessions contention').expect(429);
-    expect(contention.body.code).toBe('ASSISTANT_STREAM_IN_PROGRESS');
+    expect(problem(contention).code).toBe('ASSISTANT_STREAM_IN_PROGRESS');
     expect(contention.headers['retry-after']).toBe('35');
 
     provider.releaseHeldStream();
@@ -551,7 +657,7 @@ describe('assistant HTTP API', () => {
     expect(failure.some((event) => event.type === 'done')).toBe(false);
   });
 
-  it('retains a stalled native stream lease until real Redis expiry', async () => {
+  it('releases a stalled lease as soon as late provider finalization succeeds', async () => {
     const signedIn = await signUp(app);
     const timeout = parseSse((await chat(signedIn, 'sessions stalled')).text);
     expect(timeout.at(-1)).toEqual({
@@ -569,12 +675,10 @@ describe('assistant HTTP API', () => {
       signedIn,
       'sessions architecture',
     ).expect(429);
-    expect(protectedRequest.body.code).toBe('ASSISTANT_STREAM_IN_PROGRESS');
+    expect(problem(protectedRequest).code).toBe('ASSISTANT_STREAM_IN_PROGRESS');
 
     provider.releaseStalledStream();
     await provider.stalledFinalized;
-    expect(await redis.exists(leaseKey)).toBe(1);
-    await redis.pexpire(leaseKey, 50);
     for (let attempt = 0; attempt < 50; attempt += 1) {
       if ((await redis.exists(leaseKey)) === 0) break;
       await delay(10);

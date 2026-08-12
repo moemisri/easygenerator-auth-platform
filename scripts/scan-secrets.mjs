@@ -149,10 +149,10 @@ function trackedEntries() {
   return git(['ls-files', '-z'])
     .split('\0')
     .filter(Boolean)
-    .map((pathname) => ({
-      path: pathname,
-      content: fs.readFileSync(pathname, 'utf8'),
-    }));
+    .flatMap((pathname) => {
+      if (!fs.existsSync(pathname)) return [];
+      return [{ path: pathname, content: fs.readFileSync(pathname, 'utf8') }];
+    });
 }
 
 function reachableEntries(ref) {

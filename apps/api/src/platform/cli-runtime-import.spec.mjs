@@ -22,11 +22,12 @@ it('loads the import-safe administrator CLI through its real tsx runtime', () =>
     {
       cwd: path.join(repositoryRoot, 'apps', 'api'),
       encoding: 'utf8',
-      env: { ...process.env, NODE_ENV: 'test', VITEST: 'true' },
+      env: { ...process.env, NODE_ENV: 'test', APP_BOOTSTRAP: 'false' },
     },
   );
 
-  expect(result.status, result.stderr).toBe(0);
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
   expect(result.stdout).toBe('imported');
 });
 
@@ -41,7 +42,8 @@ it('loads compiled API and CLI modules with emitted Nest constructor metadata', 
       env: process.env,
     },
   );
-  expect(build.status, build.stderr).toBe(0);
+  expect(build.status).toBe(0);
+  expect(build.stderr).toBe('');
 
   const result = spawnSync(
     process.execPath,
@@ -69,10 +71,11 @@ it('loads compiled API and CLI modules with emitted Nest constructor metadata', 
     {
       cwd: apiRoot,
       encoding: 'utf8',
-      env: { ...process.env, NODE_ENV: 'test', VITEST: 'true' },
+      env: { ...process.env, NODE_ENV: 'test', APP_BOOTSTRAP: 'false' },
     },
   );
 
-  expect(result.status, result.stderr).toBe(0);
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
   expect(result.stdout).toBe('compiled-runtime-loaded');
 });

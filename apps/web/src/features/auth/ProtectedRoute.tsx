@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { Button } from '../../components/Button';
 import { LoadingScreen } from '../../components/LoadingScreen';
@@ -7,6 +7,7 @@ import { useAuth } from './AuthProvider';
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status, restorationError, retrySession } = useAuth();
+  const location = useLocation();
   if (status === 'restoring') return <LoadingScreen />;
   if (status === 'error') {
     return (
@@ -20,6 +21,8 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
       </main>
     );
   }
-  if (status === 'anonymous') return <Navigate to="/signin" replace />;
+  if (status === 'anonymous') {
+    return <Navigate to="/signin" replace state={{ from: location }} />;
+  }
   return <>{children}</>;
 }

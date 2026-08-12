@@ -16,6 +16,12 @@ const trustedIp = '198.51.100.77';
 const actorDigest = 'CuM-eHRXWDjnSEdGoZf6-_xZMTpe78NdZ_oOV4WlRhc';
 const ipDigest = 'USaMswG82EQOsLqKWEh3dvu26yGb4JAQwdyRYEweBbM';
 
+function adminHandler(
+  name: 'list' | 'update',
+): AdminController['list'] | AdminController['update'] {
+  return Reflect.get(AdminController.prototype, name);
+}
+
 function context(principal = true): ExecutionContext {
   const request = {
     ip: trustedIp,
@@ -57,10 +63,7 @@ describe('AdminMutationProtectionGuard', () => {
 
   it('runs after session, CSRF, and capability only on PATCH', () => {
     expect(
-      Reflect.getMetadata(
-        GUARDS_METADATA,
-        AdminController.prototype.update,
-      ) as unknown,
+      Reflect.getMetadata(GUARDS_METADATA, adminHandler('update')) as unknown,
     ).toEqual([
       SessionGuard,
       CsrfGuard,
@@ -68,10 +71,7 @@ describe('AdminMutationProtectionGuard', () => {
       AdminMutationProtectionGuard,
     ]);
     expect(
-      Reflect.getMetadata(
-        GUARDS_METADATA,
-        AdminController.prototype.list,
-      ) as unknown,
+      Reflect.getMetadata(GUARDS_METADATA, adminHandler('list')) as unknown,
     ).toEqual([SessionGuard, CapabilityGuard]);
   });
 

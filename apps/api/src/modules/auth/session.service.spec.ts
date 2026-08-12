@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { SafeUser } from '@easygenerator/contracts';
+import type { ConfigService } from '@nestjs/config';
 import type { ClientSession } from 'mongoose';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -65,7 +66,7 @@ class InMemorySessionRepository {
   lastRevokeSession: ClientSession | undefined;
   lastRevokeAllSession: ClientSession | undefined;
 
-  async create(
+  create(
     session: NewSession,
     dbSession?: ClientSession,
   ): Promise<StoredSession> {
@@ -77,15 +78,15 @@ class InMemorySessionRepository {
       revokedAt: null,
     };
     this.records.set(session.tokenDigest, stored);
-    return stored;
+    return Promise.resolve(stored);
   }
 
-  async findByTokenDigest(tokenDigest: string): Promise<StoredSession | null> {
+  findByTokenDigest(tokenDigest: string): Promise<StoredSession | null> {
     this.lastLookupDigest = tokenDigest;
-    return this.records.get(tokenDigest) ?? null;
+    return Promise.resolve(this.records.get(tokenDigest) ?? null);
   }
 
-  async revokeByTokenDigest(
+  revokeByTokenDigest(
     tokenDigest: string,
     revokedAt: Date,
     dbSession?: ClientSession,
@@ -95,9 +96,10 @@ class InMemorySessionRepository {
     if (session !== undefined) {
       this.records.set(tokenDigest, { ...session, revokedAt });
     }
+    return Promise.resolve();
   }
 
-  async revokeAllForUser(
+  revokeAllForUser(
     revokedUserId: string,
     revokedAt: Date,
     dbSession?: ClientSession,
@@ -108,6 +110,7 @@ class InMemorySessionRepository {
         this.records.set(digest, { ...session, revokedAt });
       }
     }
+    return Promise.resolve();
   }
 }
 
@@ -124,13 +127,19 @@ describe('SessionService', () => {
     repository = new InMemorySessionRepository();
     currentUser = activeUser;
     const users = {
-      findSafeById: async () => currentUser,
+      findSafeById: () => Promise.resolve(currentUser),
     } as unknown as UsersService;
     service = new SessionService(
       repository as unknown as SessionRepository,
       users,
       clock,
       random,
+      {
+        getOrThrow: (key: string) => {
+          if (key === 'SESSION_TTL_SECONDS') return 120;
+          throw new Error(`Unexpected config key: ${key}`);
+        },
+      } as unknown as ConfigService,
     );
   });
 
@@ -139,13 +148,13 @@ describe('SessionService', () => {
 
     expect(created).toEqual({
       rawToken: rawTokenFixture,
-      expiresAt: new Date(initialTime.getTime() + 7 * DAY_MS),
+      expiresAt: new Date(initialTime.getTime() + 120_000),
     });
     expect(random.requestedBytes).toEqual([32]);
     expect(repository.lastWrite).toEqual({
       userId,
       tokenDigest: tokenDigestFixture,
-      expiresAt: new Date(initialTime.getTime() + 7 * DAY_MS),
+      expiresAt: new Date(initialTime.getTime() + 120_000),
     });
     expect(repository.lastWrite).not.toHaveProperty('rawToken');
     expect(JSON.stringify(repository.lastWrite)).not.toContain(rawTokenFixture);
@@ -163,9 +172,48 @@ describe('SessionService', () => {
 
   it('rejects a session at the exact absolute-expiry boundary', async () => {
     await service.create(userId);
-    clock.advanceByMilliseconds(7 * DAY_MS);
+    clock.advanceByMilliseconds(120_000);
 
     await expect(service.resolve(rawTokenFixture)).resolves.toBeNull();
+  });
+
+  it.each([
+    [
+      'EXPIRED',
+      { expiresAt: new Date(initialTime.getTime() - 1), revokedAt: null },
+    ],
+    [
+      'REVOKED',
+      {
+        expiresAt: new Date(initialTime.getTime() + DAY_MS),
+        revokedAt: initialTime,
+      },
+    ],
+  ] as const)(
+    'classifies a persisted %s session with its known actor',
+    async (reason, state) => {
+      repository.records.set(tokenDigestFixture, {
+        id: 'session-id',
+        userId,
+        tokenDigest: tokenDigestFixture,
+        ...state,
+      });
+
+      await expect(service.resolveDetailed(rawTokenFixture)).resolves.toEqual({
+        principal: null,
+        rejection: { actorId: userId, reason },
+      });
+    },
+  );
+
+  it('classifies a disabled current user without exposing user data', async () => {
+    await service.create(userId);
+    currentUser = { ...activeUser, status: 'DISABLED' };
+
+    await expect(service.resolveDetailed(rawTokenFixture)).resolves.toEqual({
+      principal: null,
+      rejection: { actorId: userId, reason: 'DISABLED' },
+    });
   });
 
   it('rejects a revoked session', async () => {

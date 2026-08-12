@@ -35,14 +35,13 @@ describe('official Render schema validator', () => {
       await expect(
         validateRenderBlueprint(blueprint, fetcher),
       ).resolves.toBeUndefined();
-      expect(fetcher).toHaveBeenCalledWith(
+      expect(fetcher).toHaveBeenCalledExactlyOnceWith(
         'https://render.com/schema/render.yaml.json',
         {
           headers: { accept: 'application/schema+json, application/json' },
           signal: expect.any(AbortSignal),
         },
       );
-      expect(fetcher).toHaveBeenCalledOnce();
     } finally {
       fs.rmSync(directory, { recursive: true });
     }

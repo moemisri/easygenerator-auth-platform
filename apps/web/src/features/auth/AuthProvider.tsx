@@ -111,12 +111,17 @@ export function AuthProvider({
     setStatus('restoring');
     setRestorationAttempt((attempt) => attempt + 1);
   }, []);
-  const accept = useCallback((value: AuthSessionResponse) => {
-    restorationGeneration.current += 1;
-    setRestorationError(null);
-    setSession(value);
-    setStatus('authenticated');
-  }, []);
+  const accept = useCallback(
+    async (value: AuthSessionResponse) => {
+      restorationGeneration.current += 1;
+      setRestorationError(null);
+      await queryClient.cancelQueries();
+      queryClient.clear();
+      setSession(value);
+      setStatus('authenticated');
+    },
+    [queryClient],
+  );
   const signIn = useCallback(
     async (input: SigninInput) => accept(await authApi.signIn(input)),
     [accept],

@@ -66,6 +66,60 @@ describe('RateLimiterService', () => {
     );
   });
 
+  it('charges multiple failed-authentication dimensions atomically', async () => {
+    evalScript.mockResolvedValue([10, 900, 6, 900]);
+
+    await expect(
+      service.consumeMany([
+        { key: 'signin:ip:digest', limit: 10, windowSeconds: 900 },
+        { key: 'signin:identity:digest', limit: 5, windowSeconds: 900 },
+      ]),
+    ).resolves.toEqual([
+      { allowed: true, remaining: 0, retryAfterSeconds: 0 },
+      { allowed: false, remaining: 0, retryAfterSeconds: 900 },
+    ]);
+    expect(evalScript).toHaveBeenCalledWith(
+      expect.stringContaining('for index = 1, #KEYS do'),
+      2,
+      'easygenerator:test:rate-limit:signin:ip:digest',
+      'easygenerator:test:rate-limit:signin:identity:digest',
+      10,
+      900,
+      5,
+      900,
+    );
+  });
+
+  it('inspects a fixed window without incrementing it', async () => {
+    evalScript.mockResolvedValue([4, 321]);
+
+    await expect(service.inspect('signin:identity:digest', 5)).resolves.toEqual(
+      {
+        allowed: true,
+        remaining: 1,
+        retryAfterSeconds: 0,
+      },
+    );
+    expect(evalScript).toHaveBeenCalledWith(
+      expect.not.stringContaining("redis.call('INCR', KEYS[1])"),
+      1,
+      'easygenerator:test:rate-limit:signin:identity:digest',
+      5,
+    );
+  });
+
+  it('reports an exhausted inspected window without consuming more capacity', async () => {
+    evalScript.mockResolvedValue([5, 233]);
+
+    await expect(service.inspect('signin:identity:digest', 5)).resolves.toEqual(
+      {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: 233,
+      },
+    );
+  });
+
   it('blocks after the limit and returns the current Redis TTL', async () => {
     evalScript.mockResolvedValue([6, 433]);
 

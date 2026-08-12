@@ -71,27 +71,18 @@ describe('assistantChatRequestSchema', () => {
   });
 
   it('rejects 6,001 total history characters', () => {
-    const parsed = assistantChatRequestSchema.safeParse({
-      message: 'Explain sessions',
-      history: [
-        ...Array.from({ length: 5 }, (_, index) => ({
-          role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
-          content: String(index).repeat(1_000),
-        })),
-        { role: 'user', content: 'z'.repeat(1_001) },
-      ],
-    });
-
-    expect(parsed.success).toBe(false);
-    if (!parsed.success) {
-      expect(parsed.error.issues).toContainEqual(
-        expect.objectContaining({
-          code: 'custom',
-          path: ['history'],
-          message: 'History is too long.',
-        }),
-      );
-    }
+    expect(() =>
+      assistantChatRequestSchema.parse({
+        message: 'Explain sessions',
+        history: [
+          ...Array.from({ length: 5 }, (_, index) => ({
+            role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+            content: String(index).repeat(1_000),
+          })),
+          { role: 'user', content: 'z'.repeat(1_001) },
+        ],
+      }),
+    ).toThrow('History is too long.');
   });
 });
 

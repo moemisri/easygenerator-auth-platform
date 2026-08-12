@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { createQueryClient } from '../../app/query-client';
 import { UserTable } from './UserTable';
 
-const onStaleRecovery = async () => undefined;
+const onStaleRecovery = () => Promise.resolve();
 
 function person(
   id: string,
@@ -43,10 +43,10 @@ function renderTable(actor: SafeUser, target: SafeUser) {
 function expectControls(name: string, visible: boolean) {
   expect(
     screen.queryAllByRole('button', { name: `Change ${name}'s role` }),
-  ).toHaveLength(visible ? 2 : 0);
+  ).toHaveLength(visible ? 1 : 0);
   expect(
     screen.queryAllByRole('button', { name: `Disable ${name}'s account` }),
-  ).toHaveLength(visible ? 2 : 0);
+  ).toHaveLength(visible ? 1 : 0);
 }
 
 describe('UserTable permission policy', () => {
@@ -68,6 +68,7 @@ describe('UserTable permission policy', () => {
   ] as const)(
     'applies manager target policy to %s',
     (targetId, targetName, targetRole, visible) => {
+      expect.hasAssertions();
       renderTable(
         person('manager-actor', 'Manager operator', 'MANAGER'),
         person(targetId, targetName, targetRole),
@@ -78,6 +79,7 @@ describe('UserTable permission policy', () => {
   );
 
   it('lets an admin manage another admin but never themselves', () => {
+    expect.hasAssertions();
     const admin = person('admin-actor', 'Admin operator', 'ADMIN');
     const { rerender } = renderTable(
       admin,
@@ -105,8 +107,8 @@ describe('UserTable permission policy', () => {
     );
 
     const options = screen
-      .getAllByRole('combobox', { name: 'New role for Ada Lovelace' })[0]
-      ?.querySelectorAll('option');
+      .getByRole('combobox', { name: 'New role for Ada Lovelace' })
+      .querySelectorAll('option');
     expect(Array.from(options ?? [], (option) => option.textContent)).toEqual([
       'SUPPORT',
     ]);
@@ -119,8 +121,8 @@ describe('UserTable permission policy', () => {
     );
 
     const options = screen
-      .getAllByRole('combobox', { name: 'New role for Ada Lovelace' })[0]
-      ?.querySelectorAll('option');
+      .getByRole('combobox', { name: 'New role for Ada Lovelace' })
+      .querySelectorAll('option');
     expect(Array.from(options ?? [], (option) => option.textContent)).toEqual([
       'SUPPORT',
       'MANAGER',
@@ -162,5 +164,19 @@ describe('UserTable permission policy', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(
       "Change Ada Lovelace's role from SUPPORT to USER?",
     );
+  });
+
+  it('exposes the overflowing directory as one keyboard-scrollable region', () => {
+    renderTable(
+      person('admin-actor', 'Admin operator', 'ADMIN'),
+      person('ada', 'Ada Lovelace', 'USER'),
+    );
+
+    const region = screen.getByRole('region', { name: 'User directory' });
+    expect(region).toHaveAttribute('tabindex', '0');
+    expect(screen.getAllByText('Ada Lovelace')).toHaveLength(1);
+    expect(
+      screen.queryByRole('list', { name: 'User directory cards' }),
+    ).not.toBeInTheDocument();
   });
 });

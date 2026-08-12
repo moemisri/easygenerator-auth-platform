@@ -7,11 +7,12 @@ import { PrivacyKeyDigestService } from './privacy-key-digest.service.js';
 import { RateLimiterService } from './rate-limiter.service.js';
 
 @Injectable()
-class RedisShutdown implements OnApplicationShutdown {
+export class RedisShutdown implements OnApplicationShutdown {
   constructor(private readonly redis: Redis) {}
 
-  onApplicationShutdown(): void {
-    this.redis.disconnect();
+  async onApplicationShutdown(): Promise<void> {
+    if (this.redis.status === 'end') return;
+    await this.redis.quit();
   }
 }
 

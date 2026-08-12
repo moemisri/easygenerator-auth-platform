@@ -21,6 +21,8 @@ COPY --from=dependencies /workspace /workspace
 COPY apps ./apps
 COPY packages ./packages
 COPY docker ./docker
+# The web build stages its output through scripts/stage-web-build.mjs.
+COPY scripts ./scripts
 COPY docs/assistant-public ./docs/assistant-public
 RUN pnpm --filter @easygenerator/contracts build \
  && pnpm --filter @easygenerator/web build \
@@ -58,5 +60,6 @@ COPY --from=build --chown=app:app /workspace/docs/assistant-public /app/docs/ass
 USER 10001:10001
 WORKDIR /app/apps/api
 EXPOSE 3000
+HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=12 CMD ["node", "--input-type=module", "--eval", "fetch('http://127.0.0.1:3000/health/ready').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/main.js"]

@@ -11,6 +11,12 @@ import type { Connection } from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import {
+  authSessionResponseSchema,
+  problemDetailsSchema,
+  safeUserSchema,
+} from '@easygenerator/contracts';
+
 import { REDIS } from '../../src/platform/redis/redis.constants';
 import { createTestApp } from '../support/create-test-app';
 import { resetDatastores } from '../support/reset-datastores';
@@ -102,9 +108,8 @@ describe('authentication HTTP API', () => {
     app = await createTestApp();
     failingAuditApp = await createTestApp({
       auditService: {
-        record: async () => {
-          throw new Error('forced downstream audit failure');
-        },
+        record: () =>
+          Promise.reject(new Error('forced downstream audit failure')),
       },
     });
   });
@@ -125,14 +130,15 @@ describe('authentication HTTP API', () => {
       .set('Origin', appOrigin)
       .send(validSignup)
       .expect(201);
+    const signupBody = authSessionResponseSchema.parse(signup.body);
 
-    expect(signup.body).toMatchObject({
+    expect(signupBody).toMatchObject({
       user: { email: 'ada@example.com', role: 'USER', status: 'ACTIVE' },
-      csrfToken: expect.any(String),
       features: { assistant: false },
     });
-    expect(signup.body.user).not.toHaveProperty('passwordHash');
-    expect(signup.body.features).toEqual({ assistant: false });
+    expect(typeof signupBody.csrfToken).toBe('string');
+    expect(signupBody.user).not.toHaveProperty('passwordHash');
+    expect(signupBody.features).toEqual({ assistant: false });
     expect(signup.headers['cache-control']).toBe('no-store');
     const cookie = setCookieHeader(signup);
     expect(cookie).toContain('session=');
@@ -144,21 +150,21 @@ describe('authentication HTTP API', () => {
     expect(cookie).not.toContain('Domain=');
 
     const restored = await agent.get('/api/v1/auth/session').expect(200);
-    expect(restored.body).toEqual({
-      user: signup.body.user,
-      csrfToken: signup.body.csrfToken,
+    expect(authSessionResponseSchema.parse(restored.body)).toEqual({
+      user: signupBody.user,
+      csrfToken: signupBody.csrfToken,
       features: { assistant: false },
     });
     expect(restored.headers['cache-control']).toBe('no-store');
 
     const currentUser = await agent.get('/api/v1/users/me').expect(200);
-    expect(currentUser.body).toEqual(signup.body.user);
+    expect(safeUserSchema.parse(currentUser.body)).toEqual(signupBody.user);
     expect(currentUser.headers['cache-control']).toBe('no-store');
 
     await agent
       .post('/api/v1/auth/logout')
       .set('Origin', appOrigin)
-      .set('X-CSRF-Token', signup.body.csrfToken as string)
+      .set('X-CSRF-Token', signupBody.csrfToken)
       .expect(204)
       .expect('Cache-Control', 'no-store');
     await agent.get('/api/v1/users/me').expect(401);
@@ -176,11 +182,12 @@ describe('authentication HTTP API', () => {
       .send(body)
       .expect(400);
 
-    expect(response.body).toMatchObject({
+    const problem = problemDetailsSchema.parse(response.body);
+    expect(problem).toMatchObject({
       code: 'VALIDATION_ERROR',
       status: 400,
-      fields: expect.arrayContaining([expect.objectContaining({ field })]),
     });
+    expect(problem.fields?.some((item) => item.field === field)).toBe(true);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).not.toHaveProperty('stack');
   });
@@ -201,7 +208,7 @@ describe('authentication HTTP API', () => {
       201, 409,
     ]);
     const conflict = responses.find((response) => response.status === 409);
-    expect(conflict?.body).toMatchObject({
+    expect(problemDetailsSchema.parse(conflict?.body)).toMatchObject({
       code: 'EMAIL_ALREADY_REGISTERED',
       status: 409,
     });
@@ -242,18 +249,26 @@ describe('authentication HTTP API', () => {
       .set('Origin', appOrigin)
       .send({ email: ' ADA@EXAMPLE.COM ', password: validSignup.password })
       .expect(200);
+    const signupBody = authSessionResponseSchema.parse(signup.body);
+    const signinBody = authSessionResponseSchema.parse(signin.body);
 
-    expect(signin.body).toMatchObject({
+    expect(signinBody).toMatchObject({
       user: { email: validSignup.email },
-      csrfToken: expect.any(String),
       features: { assistant: false },
     });
-    expect(signin.body.features).toEqual({ assistant: false });
+    expect(typeof signinBody.csrfToken).toBe('string');
+    expect(signinBody.features).toEqual({ assistant: false });
     expect(signin.headers['cache-control']).toBe('no-store');
     expect(rawCookiePair(setCookieHeader(signin))).not.toBe(
       rawCookiePair(setCookieHeader(signup)),
     );
-    expect(signin.body.csrfToken).not.toBe(signup.body.csrfToken);
+    expect(signinBody.csrfToken).not.toBe(signupBody.csrfToken);
+    expect(
+      await scanKeys(
+        app.get<Redis>(REDIS),
+        'easygenerator:test:rate-limit:auth:signin:*',
+      ),
+    ).toEqual([]);
   });
 
   it('returns indistinguishable signin failures for unknown, wrong, and disabled users', async () => {
@@ -293,9 +308,12 @@ describe('authentication HTTP API', () => {
       status: body.status,
       code: body.code,
     });
-    expect(stableProblem(wrong.body)).toEqual(stableProblem(missing.body));
-    expect(stableProblem(disabled.body)).toEqual(stableProblem(missing.body));
-    expect(stableProblem(missing.body)).toMatchObject({
+    const wrongBody = problemDetailsSchema.parse(wrong.body);
+    const missingBody = problemDetailsSchema.parse(missing.body);
+    const disabledBody = problemDetailsSchema.parse(disabled.body);
+    expect(stableProblem(wrongBody)).toEqual(stableProblem(missingBody));
+    expect(stableProblem(disabledBody)).toEqual(stableProblem(missingBody));
+    expect(stableProblem(missingBody)).toMatchObject({
       status: 401,
       code: 'INVALID_CREDENTIALS',
     });
@@ -306,10 +324,11 @@ describe('authentication HTTP API', () => {
     async (origin) => {
       const pending = request(app.getHttpServer()).post('/api/v1/auth/signup');
       if (origin !== undefined) pending.set('Origin', origin);
-      await pending
+      const response = await pending
         .send(validSignup)
         .expect(403)
         .expect('Cache-Control', 'no-store');
+      expect(problemDetailsSchema.parse(response.body).status).toBe(403);
     },
   );
 
@@ -320,26 +339,31 @@ describe('authentication HTTP API', () => {
       .send(validSignup)
       .expect(201);
     const cookie = rawCookiePair(setCookieHeader(signup));
-    const csrfToken = signup.body.csrfToken as string;
+    const csrfToken = authSessionResponseSchema.parse(signup.body).csrfToken;
 
-    await request(app.getHttpServer())
+    const missing = await request(app.getHttpServer())
       .post('/api/v1/auth/logout')
       .set('Origin', appOrigin)
       .set('Cookie', cookie)
       .expect(403);
-    await request(app.getHttpServer())
+    const invalid = await request(app.getHttpServer())
       .post('/api/v1/auth/logout')
       .set('Origin', appOrigin)
       .set('Cookie', cookie)
       .set('X-CSRF-Token', 'invalid-token')
       .expect(403);
-    await request(app.getHttpServer())
+    const crossSite = await request(app.getHttpServer())
       .post('/api/v1/auth/logout')
       .set('Origin', appOrigin)
       .set('Cookie', cookie)
       .set('X-CSRF-Token', csrfToken)
       .set('Sec-Fetch-Site', 'cross-site')
       .expect(403);
+    expect(
+      [missing, invalid, crossSite].map(
+        (response) => problemDetailsSchema.parse(response.body).status,
+      ),
+    ).toEqual([403, 403, 403]);
   });
 
   it('makes repeated logout with the same valid cookie and CSRF token idempotent', async () => {
@@ -349,7 +373,7 @@ describe('authentication HTTP API', () => {
       .send(validSignup)
       .expect(201);
     const cookie = rawCookiePair(setCookieHeader(signup));
-    const csrfToken = signup.body.csrfToken as string;
+    const csrfToken = authSessionResponseSchema.parse(signup.body).csrfToken;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const logout = await request(app.getHttpServer())
@@ -384,6 +408,14 @@ describe('authentication HTTP API', () => {
       .get('/api/v1/auth/session')
       .expect(401)
       .expect('Cache-Control', 'no-store');
+    const connectionAfterRejection = app.get<Connection>(getConnectionToken());
+    const rejectionEvent = await connectionAfterRejection
+      .collection('auditevents')
+      .findOne({
+        action: 'SESSION_REJECTED',
+        'metadata.reason': 'EXPIRED',
+      });
+    expect(typeof rejectionEvent?.actorId).toBe('string');
     await agent
       .get('/api/v1/users/me')
       .expect(401)
@@ -481,32 +513,92 @@ describe('authentication HTTP API', () => {
     }
   });
 
+  it('atomically charges concurrent failed signins at limit minus one', async () => {
+    const trustedIpSentinel = '198.51.100.25';
+    const identity = 'concurrent-missing@example.com';
+    const redis = app.get<Redis>(REDIS);
+    const ipKey = `easygenerator:test:rate-limit:auth:signin:ip:${privacyDigest(
+      'auth:signin:ip',
+      trustedIpSentinel,
+    )}`;
+    const identityKey = `easygenerator:test:rate-limit:auth:signin:identity:${privacyDigest(
+      'auth:signin:identity',
+      identity,
+    )}`;
+    await redis
+      .multi()
+      .set(ipKey, '9', 'EX', 120)
+      .set(identityKey, '4', 'EX', 240)
+      .exec();
+
+    const expressApp = expressApplication(app);
+    const previousTrustProxy = expressApp.get('trust proxy');
+    expressApp.set('trust proxy', 1);
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 2 }, () =>
+          request(app.getHttpServer())
+            .post('/api/v1/auth/signin')
+            .set('Origin', appOrigin)
+            .set('X-Forwarded-For', trustedIpSentinel)
+            .send({ email: identity, password: 'Incorrect1!' }),
+        ),
+      );
+
+      expect(responses.map(({ status }) => status).sort()).toEqual([401, 429]);
+      const blocked = responses.find(({ status }) => status === 429);
+      if (blocked === undefined) throw new Error('Expected one blocked signin');
+      expect(problemDetailsSchema.parse(blocked.body)).toMatchObject({
+        code: 'RATE_LIMITED',
+        status: 429,
+      });
+
+      const [ipCount, identityCount, ipTtl, identityTtl] = await Promise.all([
+        redis.get(ipKey),
+        redis.get(identityKey),
+        redis.ttl(ipKey),
+        redis.ttl(identityKey),
+      ]);
+      expect([ipCount, identityCount]).toEqual(['11', '6']);
+      expect(identityTtl).toBeGreaterThan(ipTtl);
+      const retryAfter = Number(blocked.headers['retry-after']);
+      expect(retryAfter).toBeGreaterThan(ipTtl);
+      expect(Math.abs(retryAfter - identityTtl)).toBeLessThanOrEqual(1);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/signin')
+        .set('Origin', appOrigin)
+        .set('X-Forwarded-For', trustedIpSentinel)
+        .send({ email: identity, password: 'Incorrect1!' })
+        .expect(429);
+      expect(await redis.mget(ipKey, identityKey)).toEqual(['11', '6']);
+    } finally {
+      expressApp.set('trust proxy', previousTrustProxy);
+    }
+  });
+
   it('returns 503 for signup and signin when Redis protection is unavailable', async () => {
     const redis = app.get<Redis>(REDIS);
     dockerCompose('stop', 'redis-test');
     try {
-      await request(app.getHttpServer())
+      const signupUnavailable = await request(app.getHttpServer())
         .post('/api/v1/auth/signup')
         .set('Origin', appOrigin)
         .send(validSignup)
-        .expect(503)
-        .expect((response) => {
-          expect(response.body).toMatchObject({
-            code: 'AUTH_PROTECTION_UNAVAILABLE',
-            status: 503,
-          });
-        });
-      await request(app.getHttpServer())
+        .expect(503);
+      expect(problemDetailsSchema.parse(signupUnavailable.body)).toMatchObject({
+        code: 'AUTH_PROTECTION_UNAVAILABLE',
+        status: 503,
+      });
+      const signinUnavailable = await request(app.getHttpServer())
         .post('/api/v1/auth/signin')
         .set('Origin', appOrigin)
         .send({ email: validSignup.email, password: validSignup.password })
-        .expect(503)
-        .expect((response) => {
-          expect(response.body).toMatchObject({
-            code: 'AUTH_PROTECTION_UNAVAILABLE',
-            status: 503,
-          });
-        });
+        .expect(503);
+      expect(problemDetailsSchema.parse(signinUnavailable.body)).toMatchObject({
+        code: 'AUTH_PROTECTION_UNAVAILABLE',
+        status: 503,
+      });
     } finally {
       dockerCompose('up', '--wait', 'redis-test');
       await waitForRedis(redis);

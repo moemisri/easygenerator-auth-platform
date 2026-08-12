@@ -139,7 +139,7 @@ function renderAdmin({
 }
 
 describe('AdminDashboard', () => {
-  it('renders server summaries, a semantic directory, mobile records, and redacted audits', async () => {
+  it('renders server summaries, one semantic directory, and redacted audits', async () => {
     renderAdmin();
 
     expect(await screen.findByText('42')).toBeVisible();
@@ -147,9 +147,7 @@ describe('AdminDashboard', () => {
     expect(screen.getByText('1 result')).toBeVisible();
     const table = screen.getByRole('table', { name: 'User directory' });
     expect(within(table).getByText('Ada Lovelace')).toBeVisible();
-    expect(
-      screen.getByRole('list', { name: 'User directory cards' }),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText('Ada Lovelace')).toHaveLength(1);
     expect(screen.getByText('USER_ROLE_CHANGED')).toBeVisible();
     expect(
       screen.getByText('A user role changed from USER to SUPPORT.'),
@@ -188,7 +186,9 @@ describe('AdminDashboard', () => {
 
     await waitFor(() => expect(requests).toContain('1:Ada'));
     expect(screen.getAllByText('Ada Lovelace')[0]).toBeVisible();
-    expect(screen.getByRole('status')).toHaveTextContent('Updating results');
+    expect(
+      screen.getByRole('status', { name: 'User directory status' }),
+    ).toHaveTextContent('Updating results');
 
     await user.clear(search);
     await user.type(search, 'Grace');
@@ -224,7 +224,8 @@ describe('AdminDashboard', () => {
     await user.click(screen.getByRole('button', { name: 'History forward' }));
     await new Promise((resolve) => window.setTimeout(resolve, 300));
     expect(search).toHaveValue('Grace');
-    expect(requests.at(-1)).toBe('Grace');
+    expect((await screen.findAllByText('Grace Hopper'))[0]).toBeVisible();
+    expect(requests).toEqual(['Grace', 'Ada']);
   });
 
   it('uses server pagination and disables unavailable directions', async () => {
@@ -324,10 +325,9 @@ describe('AdminDashboard', () => {
       queryKey: ['admin', 'audit-events'],
     });
     await waitFor(() => expect(auditReads).toBe(2));
-    expect(screen.getByText('Updating audit events')).toHaveAttribute(
-      'role',
-      'status',
-    );
+    expect(
+      screen.getByRole('status', { name: 'Audit timeline status' }),
+    ).toHaveTextContent('Updating audit events');
     expect(screen.getByText('USER_ROLE_CHANGED')).toBeVisible();
 
     await act(async () => {
@@ -339,6 +339,35 @@ describe('AdminDashboard', () => {
         screen.queryByText('Updating audit events'),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it('keeps status regions mounted and does not refetch fresh data on window focus', async () => {
+    let userReads = 0;
+    let auditReads = 0;
+    renderAdmin({
+      users: () => {
+        userReads += 1;
+        return HttpResponse.json(userPage());
+      },
+      audits: () => {
+        auditReads += 1;
+        return HttpResponse.json(auditPage());
+      },
+    });
+
+    await screen.findByText('Ada Lovelace');
+    expect(
+      screen.getByRole('status', { name: 'User directory status' }),
+    ).toBeEmptyDOMElement();
+    expect(
+      screen.getByRole('status', { name: 'Audit timeline status' }),
+    ).toBeEmptyDOMElement();
+
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+
+    expect(userReads).toBe(1);
+    expect(auditReads).toBe(1);
   });
 
   it('locks a successful action through delayed refresh and focuses the refreshed trigger', async () => {

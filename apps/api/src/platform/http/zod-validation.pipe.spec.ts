@@ -17,17 +17,21 @@ describe('ZodValidationPipe', () => {
 
   it('maps validation failures to field-safe AppErrors', () => {
     const pipe = new ZodValidationPipe(schema);
+    const captureError = (): unknown => {
+      try {
+        pipe.transform({ email: 'not-an-email' });
+      } catch (error: unknown) {
+        return error;
+      }
+      return undefined;
+    };
+    const error = captureError();
 
-    try {
-      pipe.transform({ email: 'not-an-email' });
-      throw new Error('expected validation to fail');
-    } catch (error) {
-      expect(error).toBeInstanceOf(AppError);
-      expect(error).toMatchObject({
-        code: 'VALIDATION_ERROR',
-        status: 400,
-        fields: [{ field: 'email' }],
-      });
-    }
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      status: 400,
+      fields: [{ field: 'email' }],
+    });
   });
 });

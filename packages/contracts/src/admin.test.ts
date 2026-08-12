@@ -21,6 +21,7 @@ describe('adminUsersQuerySchema', () => {
 
   it.each([
     [{ page: '0' }, 'page'],
+    [{ page: '10001' }, 'page'],
     [{ page: '1.5' }, 'page'],
     [{ pageSize: '0' }, 'pageSize'],
     [{ pageSize: '51' }, 'pageSize'],
@@ -31,12 +32,17 @@ describe('adminUsersQuerySchema', () => {
     [{ sort: 'passwordHash' }, 'sort'],
     [{ direction: 'sideways' }, 'direction'],
     [{ unexpected: 'value' }, 'request'],
-  ])('rejects unsafe user query %#', (query, field) => {
+  ])('rejects unsafe user query %#', (query) => {
     const result = adminUsersQuerySchema.safeParse(query);
     expect(result.success).toBe(false);
-    if (!result.success && field === 'request') {
-      expect(result.error.issues[0]?.code).toBe('unrecognized_keys');
-    }
+  });
+
+  it('reports an unknown user-query field as unrecognized', () => {
+    const result = adminUsersQuerySchema.safeParse({ unexpected: 'value' });
+    expect(result).toMatchObject({
+      success: false,
+      error: { issues: [{ code: 'unrecognized_keys' }] },
+    });
   });
 
   it('trims search and accepts only safe sorting controls', () => {
@@ -102,17 +108,21 @@ describe('updateAdminUserSchema', () => {
     [{ version: 0, role: 'OWNER' }, 'role'],
     [{ version: 0, status: 'PENDING' }, 'status'],
     [{ version: 0, role: 'USER', passwordHash: 'secret' }, 'request'],
-  ])('rejects unsafe update body %#', (body, field) => {
+  ])('rejects unsafe update body %#', (body) => {
     const result = updateAdminUserSchema.safeParse(body);
     expect(result.success).toBe(false);
-    if (!result.success && field === 'request') {
-      expect(
-        result.error.issues.some(
-          (issue) =>
-            issue.code === 'unrecognized_keys' || issue.path.length === 0,
-        ),
-      ).toBe(true);
-    }
+  });
+
+  it('reports an unknown update field as unrecognized', () => {
+    const result = updateAdminUserSchema.safeParse({
+      version: 0,
+      role: 'USER',
+      passwordHash: 'secret',
+    });
+    expect(result).toMatchObject({
+      success: false,
+      error: { issues: [{ code: 'unrecognized_keys' }] },
+    });
   });
 });
 
@@ -129,6 +139,7 @@ describe('adminAuditEventsQuerySchema', () => {
 
   it.each([
     { page: '0' },
+    { page: '10001' },
     { pageSize: '51' },
     { pageSize: '2.5' },
     { sort: 'metadata' },

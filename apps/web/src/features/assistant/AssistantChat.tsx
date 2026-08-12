@@ -1,4 +1,11 @@
-import { useState, type FormEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type Ref,
+} from 'react';
 
 import { Button } from '../../components/Button';
 import { ProblemAlert } from '../../components/ProblemAlert';
@@ -7,6 +14,7 @@ import { SourceCards } from './SourceCards';
 import { SafeMarkdown } from './SafeMarkdown';
 import {
   ASSISTANT_REFUSAL_MESSAGE,
+  type AssistantTurn,
   useAssistantStream,
 } from './use-assistant-stream';
 
@@ -16,6 +24,43 @@ const suggestions = [
   'How does the assistant choose its sources?',
 ];
 
+const CompletedTurn = memo(function CompletedTurn({
+  turn,
+  answerRef,
+}: {
+  turn: AssistantTurn;
+  answerRef?: Ref<HTMLElement> | undefined;
+}) {
+  return (
+    <div className="assistant-turn">
+      <article className="chat-message chat-message-user">
+        <p className="message-label">You</p>
+        <p>{turn.question}</p>
+      </article>
+      <article
+        ref={answerRef}
+        className="chat-message chat-message-assistant"
+        aria-label={`Assistant answer to: ${turn.question}`}
+        tabIndex={-1}
+      >
+        <p className="message-label">Assistant</p>
+        {turn.answer ? (
+          <SafeMarkdown>{turn.answer}</SafeMarkdown>
+        ) : (
+          <p className="empty-answer">
+            No answer text was returned. Review the selected sources or ask a
+            more specific documented question.
+          </p>
+        )}
+        {turn.outcome === 'refused' && (
+          <span className="refusal-mark">Documentation boundary</span>
+        )}
+      </article>
+      <SourceCards sources={turn.sources} />
+    </div>
+  );
+});
+
 export function AssistantChat() {
   const { csrfToken, features, isLoggingOut } = useAuth();
   const assistant = useAssistantStream({
@@ -24,9 +69,43 @@ export function AssistantChat() {
     interactionLocked: isLoggingOut,
   });
   const [question, setQuestion] = useState('');
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcriptNearBottomRef = useRef(true);
+  const completedAnswerRef = useRef<HTMLElement>(null);
+  const latestCompletedTurnId = assistant.turns.at(-1)?.id;
+  const handledCompletedTurnIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript || !transcriptNearBottomRef.current) return;
+    transcript.scrollTop = transcript.scrollHeight;
+  }, [
+    assistant.attempt?.answer,
+    assistant.attempt?.sources.length,
+    latestCompletedTurnId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !latestCompletedTurnId ||
+      handledCompletedTurnIdRef.current === latestCompletedTurnId
+    ) {
+      return;
+    }
+    handledCompletedTurnIdRef.current = latestCompletedTurnId;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      (active.matches('input, textarea, select') || active.isContentEditable)
+    ) {
+      return;
+    }
+    completedAnswerRef.current?.focus();
+  }, [latestCompletedTurnId]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    transcriptNearBottomRef.current = true;
     const submittedQuestion = question;
     if (await assistant.send(submittedQuestion)) {
       setQuestion((current) => (current === submittedQuestion ? '' : current));
@@ -73,7 +152,20 @@ export function AssistantChat() {
         </p>
       </aside>
 
-      <div className="assistant-transcript">
+      <div
+        ref={transcriptRef}
+        className="assistant-transcript"
+        role="region"
+        aria-label="Conversation transcript"
+        onScroll={(event) => {
+          const transcript = event.currentTarget;
+          transcriptNearBottomRef.current =
+            transcript.scrollHeight -
+              transcript.scrollTop -
+              transcript.clientHeight <
+            80;
+        }}
+      >
         {!hasConversation && (
           <div className="assistant-empty">
             <p className="eyebrow">Start with the public docs</p>
@@ -95,28 +187,14 @@ export function AssistantChat() {
           </div>
         )}
 
-        {assistant.turns.map((turn, index) => (
-          <div className="assistant-turn" key={`${index}-${turn.question}`}>
-            <article className="chat-message chat-message-user">
-              <p className="message-label">You</p>
-              <p>{turn.question}</p>
-            </article>
-            <article className="chat-message chat-message-assistant">
-              <p className="message-label">Assistant</p>
-              {turn.answer ? (
-                <SafeMarkdown>{turn.answer}</SafeMarkdown>
-              ) : (
-                <p className="empty-answer">
-                  No answer text was returned. Review the selected sources or
-                  ask a more specific documented question.
-                </p>
-              )}
-              {turn.outcome === 'refused' && (
-                <span className="refusal-mark">Documentation boundary</span>
-              )}
-            </article>
-            <SourceCards sources={turn.sources} />
-          </div>
+        {assistant.turns.map((turn) => (
+          <CompletedTurn
+            key={turn.id}
+            turn={turn}
+            answerRef={
+              turn.id === latestCompletedTurnId ? completedAnswerRef : undefined
+            }
+          />
         ))}
 
         {assistant.attempt && (

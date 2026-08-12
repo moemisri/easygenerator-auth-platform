@@ -48,7 +48,7 @@ export class SessionRepository {
     if (document === undefined) {
       throw new Error('Session creation returned no document');
     }
-    return mapStoredSession(document.toObject() as SessionRecord);
+    return mapStoredSession(document.toObject());
   }
 
   async findByTokenDigest(tokenDigest: string): Promise<StoredSession | null> {
@@ -80,7 +80,7 @@ export class SessionRepository {
   ): Promise<void> {
     await this.sessions
       .updateMany(
-        { userId },
+        { userId, revokedAt: null },
         { $set: { revokedAt } },
         dbSession === undefined ? {} : { session: dbSession },
       )

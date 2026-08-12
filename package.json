@@ -13,7 +13,7 @@
     "e2e": "node scripts/run-e2e.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "pnpm -r --if-present lint",
+    "lint": "pnpm -r --if-present lint && eslint e2e playwright.config.ts",
     "prepare": "pnpm --filter @easygenerator/contracts build",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck"
@@ -21,8 +21,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
+    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/eslint-plugin": "1.6.16",
     "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "7.0.1",
     "globals": "^17.9.0",
     "prettier": "^3.9.6",
     "typescript": "5.9.3",

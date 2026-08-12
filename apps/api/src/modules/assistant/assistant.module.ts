@@ -19,6 +19,7 @@ import { AssistantController } from './assistant.controller.js';
 import { AssistantRateLimiterService } from './assistant-rate-limiter.service.js';
 import {
   ASSISTANT_DEADLINE_MILLISECONDS,
+  ASSISTANT_LEASE_RENEWAL_MILLISECONDS,
   AssistantService,
 } from './assistant.service.js';
 import { ASSISTANT_PROVIDER } from './assistant.types.js';
@@ -71,6 +72,7 @@ const repositoryRoot = path.resolve(
     { provide: GOOGLE_GENAI_FACTORY, useValue: googleGenAiFactory },
     { provide: ASSISTANT_PROVIDER, useExisting: GeminiProvider },
     { provide: ASSISTANT_DEADLINE_MILLISECONDS, useValue: 30_000 },
+    { provide: ASSISTANT_LEASE_RENEWAL_MILLISECONDS, useValue: 10_000 },
     {
       provide: IDENTITY_HASH_SECRET,
       inject: [ConfigService],

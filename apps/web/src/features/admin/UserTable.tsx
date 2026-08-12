@@ -1,5 +1,5 @@
 import type { Role, SafeUser } from '@easygenerator/contracts';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { UserActionDialog } from './UserActionDialog';
 
@@ -43,11 +43,13 @@ function UserControls({
 }) {
   const roles = assignableRoles(actor, target);
   const defaultRole = roles[0];
-  const [role, setRole] = useState<Role | undefined>(defaultRole);
-
-  useEffect(() => {
-    setRole(defaultRole);
-  }, [defaultRole, target.version]);
+  const [selection, setSelection] = useState<
+    { role: Role; version: number } | undefined
+  >();
+  const role =
+    selection?.version === target.version && roles.includes(selection.role)
+      ? selection.role
+      : defaultRole;
 
   if (!canManageUser(actor, target) || !role) return null;
 
@@ -61,7 +63,12 @@ function UserControls({
         <select
           aria-label={`New role for ${target.name}`}
           value={role}
-          onChange={(event) => setRole(event.target.value as Role)}
+          onChange={(event) =>
+            setSelection({
+              role: event.target.value as Role,
+              version: target.version,
+            })
+          }
         >
           {roles.map((candidate) => (
             <option key={candidate} value={candidate}>
@@ -103,7 +110,12 @@ export function UserTable({
 
   return (
     <div className="user-directory">
-      <div className="user-table-wrap">
+      <div
+        className="user-table-wrap"
+        role="region"
+        aria-label="User directory"
+        tabIndex={0}
+      >
         <table aria-label="User directory" className="user-table">
           <thead>
             <tr>
@@ -148,42 +160,6 @@ export function UserTable({
           </tbody>
         </table>
       </div>
-
-      <ul className="user-card-list" aria-label="User directory cards">
-        {users.map((user) => (
-          <li key={user.id} className="user-card">
-            <div className="user-card-heading">
-              <UserFacts user={user} />
-            </div>
-            <dl>
-              <div>
-                <dt>Role</dt>
-                <dd className="data-badge">{user.role}</dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd className="status-badge" data-status={user.status}>
-                  {user.status}
-                </dd>
-              </div>
-              <div>
-                <dt>Joined</dt>
-                <dd>
-                  <time dateTime={user.createdAt}>
-                    {new Date(user.createdAt).toLocaleDateString()}
-                  </time>
-                </dd>
-              </div>
-            </dl>
-            <UserControls
-              actor={actor}
-              target={user}
-              csrfToken={csrfToken}
-              onStaleRecovery={onStaleRecovery}
-            />
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

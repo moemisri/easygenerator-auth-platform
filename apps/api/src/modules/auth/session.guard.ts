@@ -2,8 +2,10 @@ import {
   type CanActivate,
   type ExecutionContext,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 
+import { AuditService } from '../audit/audit.service.js';
 import { AppError } from '../../platform/errors/app-error.js';
 import { CookieService } from './cookie.service.js';
 import {
@@ -23,9 +25,12 @@ export interface AuthenticatedHttpRequest {
 
 @Injectable()
 export class SessionGuard implements CanActivate {
+  private readonly logger = new Logger(SessionGuard.name);
+
   constructor(
     private readonly cookies: CookieService,
     private readonly sessions: SessionService,
+    private readonly audit: AuditService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -37,12 +42,30 @@ export class SessionGuard implements CanActivate {
       throw new AppError('UNAUTHENTICATED', 401);
     }
 
-    const principal = await this.sessions.resolve(rawSessionToken);
-    if (principal === null) {
+    const resolution = await this.sessions.resolveDetailed(rawSessionToken);
+    if (resolution.principal === null) {
+      if (resolution.rejection !== null) {
+        try {
+          await this.audit.record({
+            action: 'SESSION_REJECTED',
+            actorId: resolution.rejection.actorId,
+            reason: resolution.rejection.reason,
+            requestId: request.id,
+          });
+        } catch {
+          this.logger.error(
+            {
+              code: 'SESSION_REJECTION_AUDIT_FAILED',
+              requestId: request.id,
+            },
+            'Failed to record rejected session audit',
+          );
+        }
+      }
       throw new AppError('UNAUTHENTICATED', 401);
     }
 
-    request.principal = principal;
+    request.principal = resolution.principal;
     request.rawSessionToken = rawSessionToken;
     return true;
   }

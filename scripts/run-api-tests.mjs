@@ -22,7 +22,7 @@ function main(arguments_ = process.argv.slice(2)) {
     ['exec', 'vitest', 'run', ...forwardedArguments],
     {
       cwd: path.join(repositoryRoot, 'apps', 'api'),
-      env: process.env,
+      env: { ...process.env, APP_BOOTSTRAP: 'false' },
       shell: false,
       stdio: 'inherit',
     },

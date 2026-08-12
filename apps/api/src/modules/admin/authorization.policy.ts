@@ -86,19 +86,3 @@ export function canUpdateUser(
     (proposedRole === 'USER' || proposedRole === 'SUPPORT')
   );
 }
-
-interface AdminMembership {
-  role: unknown;
-  status: unknown;
-}
-
-export function removesActiveAdmin(
-  current: AdminMembership,
-  proposed: AdminMembership,
-): boolean {
-  const currentlyActiveAdmin =
-    current.role === 'ADMIN' && current.status === 'ACTIVE';
-  const remainsActiveAdmin =
-    proposed.role === 'ADMIN' && proposed.status === 'ACTIVE';
-  return currentlyActiveAdmin && !remainsActiveAdmin;
-}

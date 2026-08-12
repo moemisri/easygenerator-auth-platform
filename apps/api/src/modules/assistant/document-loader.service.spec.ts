@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assistantCorpusFileSystem,
@@ -100,15 +100,20 @@ describe('DocumentLoaderService', () => {
   });
 
   it('normalizes line endings for the digest and changes it after content changes', async () => {
-    const loader = new DocumentLoaderService(root, assistantCorpusFileSystem);
-    const original = await loader.load();
+    const original = await new DocumentLoaderService(
+      root,
+      assistantCorpusFileSystem,
+    ).load();
 
     await writeFile(
       path.join(root, 'api.md'),
       fixtureContent['api.md'].replaceAll('\r\n', '\n'),
       'utf8',
     );
-    const sameNormalizedContent = await loader.load();
+    const sameNormalizedContent = await new DocumentLoaderService(
+      root,
+      assistantCorpusFileSystem,
+    ).load();
     expect(sameNormalizedContent.digest).toBe(original.digest);
 
     await writeFile(
@@ -116,8 +121,53 @@ describe('DocumentLoaderService', () => {
       `${fixtureContent['api.md']}A new public fact.\n`,
       'utf8',
     );
-    const changed = await loader.load();
+    const changed = await new DocumentLoaderService(
+      root,
+      assistantCorpusFileSystem,
+    ).load();
     expect(changed.digest).not.toBe(original.digest);
+  });
+
+  it('shares one immutable corpus load across concurrent and later requests', async () => {
+    const readCorpusFile = vi.fn((candidate: string) =>
+      assistantCorpusFileSystem.readFile(candidate),
+    );
+    const loader = new DocumentLoaderService(root, {
+      ...assistantCorpusFileSystem,
+      readFile: readCorpusFile,
+    });
+
+    const [first, concurrent] = await Promise.all([
+      loader.load(),
+      loader.load(),
+    ]);
+    const later = await loader.load();
+
+    expect(concurrent).toBe(first);
+    expect(later).toBe(first);
+    expect(readCorpusFile).toHaveBeenCalledTimes(ASSISTANT_CORPUS_FILES.length);
+  });
+
+  it('retries a failed load instead of memoizing the rejection', async () => {
+    let shouldFail = true;
+    const loader = new DocumentLoaderService(root, {
+      ...assistantCorpusFileSystem,
+      readFile: async (candidate) => {
+        if (shouldFail) {
+          shouldFail = false;
+          throw new Error('transient private filesystem detail');
+        }
+        return assistantCorpusFileSystem.readFile(candidate);
+      },
+    });
+
+    await expect(loader.load()).rejects.toMatchObject({
+      code: 'ASSISTANT_CORPUS_UNAVAILABLE',
+      status: 503,
+    });
+    const recovered = await loader.load();
+    expect(typeof recovered.digest).toBe('string');
+    expect(Array.isArray(recovered.chunks)).toBe(true);
   });
 
   it('rejects a missing allowlisted file', async () => {

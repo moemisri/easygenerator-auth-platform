@@ -109,10 +109,13 @@ describe('UsersRepository', () => {
     const countDocuments = vi
       .fn()
       .mockReturnValueOnce({ exec: vi.fn().mockResolvedValue(1) })
-      .mockReturnValueOnce({ exec: vi.fn().mockResolvedValue(8) })
       .mockReturnValueOnce({ exec: vi.fn().mockResolvedValue(6) });
+    const estimatedDocumentCount = vi.fn(() => ({
+      exec: vi.fn().mockResolvedValue(8),
+    }));
     const repository = new UsersRepository({
       countDocuments,
+      estimatedDocumentCount,
       find,
     } as unknown as Model<User>);
 
@@ -146,8 +149,8 @@ describe('UsersRepository', () => {
     expect(query.sort).toHaveBeenCalledWith({ name: 1, _id: 1 });
     expect(query.skip).toHaveBeenCalledWith(3);
     expect(query.limit).toHaveBeenCalledWith(3);
-    expect(countDocuments).toHaveBeenNthCalledWith(2, {});
-    expect(countDocuments).toHaveBeenNthCalledWith(3, { status: 'ACTIVE' });
+    expect(estimatedDocumentCount).toHaveBeenCalledOnce();
+    expect(countDocuments).toHaveBeenNthCalledWith(2, { status: 'ACTIVE' });
   });
 
   it('uses versioned updates and the transaction session atomically', async () => {
@@ -176,22 +179,6 @@ describe('UsersRepository', () => {
     );
   });
 
-  it('counts active admins inside the transaction', async () => {
-    const dbSession = { id: 'transaction' } as unknown as ClientSession;
-    const session = vi.fn(() => ({ exec: vi.fn().mockResolvedValue(2) }));
-    const countDocuments = vi.fn(() => ({ session }));
-    const repository = new UsersRepository({
-      countDocuments,
-    } as unknown as Model<User>);
-
-    await expect(repository.countActiveAdmins(dbSession)).resolves.toBe(2);
-    expect(countDocuments).toHaveBeenCalledWith({
-      role: 'ADMIN',
-      status: 'ACTIVE',
-    });
-    expect(session).toHaveBeenCalledWith(dbSession);
-  });
-
   it.each([
     [true, false, 'ADMIN_EXISTS'],
     [false, true, 'EMAIL_EXISTS'],
@@ -218,12 +205,11 @@ describe('UsersRepository', () => {
       await expect(
         repository.bootstrapConflict('admin@example.com', dbSession),
       ).resolves.toBe(expected);
-      expect(exists).toHaveBeenNthCalledWith(1, { role: 'ADMIN' });
-      if (!adminExists) {
-        expect(exists).toHaveBeenNthCalledWith(2, {
-          emailKey: 'admin@example.com',
-        });
-      }
+      expect(exists.mock.calls).toEqual(
+        adminExists
+          ? [[{ role: 'ADMIN' }]]
+          : [[{ role: 'ADMIN' }], [{ emailKey: 'admin@example.com' }]],
+      );
     },
   );
 });

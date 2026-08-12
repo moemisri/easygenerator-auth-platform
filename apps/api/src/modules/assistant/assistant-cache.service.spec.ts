@@ -39,11 +39,11 @@ function redisWith(overrides: Partial<Redis>): Redis {
 
 describe('AssistantCacheService', () => {
   it('uses the known domain-separated HMAC key rather than raw SHA-256', async () => {
-    const get = vi.fn<(key: string) => Promise<string | null>>(
-      async () => null,
+    const get = vi.fn<(key: string) => Promise<string | null>>(() =>
+      Promise.resolve(null),
     );
     const cache = new AssistantCacheService(
-      redisWith({ get } as Partial<Redis>),
+      redisWith({ get }),
       config(),
       secret,
     );
@@ -60,9 +60,9 @@ describe('AssistantCacheService', () => {
   });
 
   it('stores only chunk IDs for one hour', async () => {
-    const set = vi.fn(async () => 'OK' as const);
+    const set = vi.fn(() => Promise.resolve('OK' as const));
     const cache = new AssistantCacheService(
-      redisWith({ set } as Partial<Redis>),
+      redisWith({ set }),
       config(),
       secret,
     );
@@ -89,8 +89,8 @@ describe('AssistantCacheService', () => {
   it('rehydrates cached IDs only from the current corpus and preserves order', async () => {
     const cache = new AssistantCacheService(
       redisWith({
-        get: vi.fn(async () => '["chunk-b","chunk-a"]'),
-      } as Partial<Redis>),
+        get: vi.fn(() => Promise.resolve('["chunk-b","chunk-a"]')),
+      }),
       config(),
       secret,
     );
@@ -99,6 +99,32 @@ describe('AssistantCacheService', () => {
       corpus.chunks[1],
       corpus.chunks[0],
     ]);
+  });
+
+  it('fits cached excerpts to the same budget before returning corpus content', async () => {
+    const oversizedCorpus: AssistantCorpus = {
+      digest: 'oversized-corpus',
+      chunks: [
+        {
+          id: 'oversized',
+          file: 'overview.md',
+          heading: 'Overview',
+          content: `sessions ${'x'.repeat(12_100)}`,
+        },
+      ],
+    };
+    const cache = new AssistantCacheService(
+      redisWith({
+        get: vi.fn(() => Promise.resolve('["oversized"]')),
+      }),
+      config(),
+      secret,
+    );
+
+    const chunks = await cache.get(oversizedCorpus, 'sessions');
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks?.[0]?.content.length).toBeLessThanOrEqual(12_000);
   });
 
   it.each([
@@ -113,7 +139,7 @@ describe('AssistantCacheService', () => {
     ['non-string ID', '[1]'],
   ])('fails closed for %s', async (_case, value) => {
     const cache = new AssistantCacheService(
-      redisWith({ get: vi.fn(async () => value) } as Partial<Redis>),
+      redisWith({ get: vi.fn(() => Promise.resolve(value)) }),
       config(),
       secret,
     );
@@ -127,10 +153,10 @@ describe('AssistantCacheService', () => {
   it('fails closed when Redis rejects', async () => {
     const cache = new AssistantCacheService(
       redisWith({
-        get: vi.fn(async () => {
-          throw new Error('redis://private-host failed');
-        }),
-      } as Partial<Redis>),
+        get: vi.fn(() =>
+          Promise.reject(new Error('redis://private-host failed')),
+        ),
+      }),
       config('production'),
       secret,
     );

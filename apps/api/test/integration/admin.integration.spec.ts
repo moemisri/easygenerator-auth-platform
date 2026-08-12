@@ -7,6 +7,14 @@ import type { Connection } from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import {
+  adminAuditEventsResponseSchema,
+  adminUsersResponseSchema,
+  authSessionResponseSchema,
+  problemDetailsSchema,
+  safeUserSchema,
+} from '@easygenerator/contracts';
+
 import { bootstrapFirstAdmin } from '../../src/cli/bootstrap-admin';
 import { AdminRepository } from '../../src/modules/admin/admin.repository';
 import { AuditService } from '../../src/modules/audit/audit.service';
@@ -77,9 +85,8 @@ describe('administration HTTP API', () => {
     app = await createTestApp();
     failingAuditApp = await createTestApp({
       auditService: {
-        record: async () => {
-          throw new Error('forced administrative audit failure');
-        },
+        record: () =>
+          Promise.reject(new Error('forced administrative audit failure')),
       },
     });
     outageApp = await createTestApp();
@@ -107,11 +114,12 @@ describe('administration HTTP API', () => {
       .set('Origin', appOrigin)
       .send({ email, name, password: 'Secure1!' })
       .expect(201);
+    const body = authSessionResponseSchema.parse(response.body);
     return {
       agent,
       cookie: setCookieHeader(response),
-      csrfToken: response.body.csrfToken as string,
-      user: response.body.user as SignedInUser['user'],
+      csrfToken: body.csrfToken,
+      user: body.user,
     };
   }
 
@@ -137,14 +145,18 @@ describe('administration HTTP API', () => {
     const unauthenticated = await request(app.getHttpServer())
       .get('/API/V1/ADMIN/USERS')
       .expect(401);
-    expect(unauthenticated.body.code).toBe('UNAUTHENTICATED');
+    expect(problemDetailsSchema.parse(unauthenticated.body).code).toBe(
+      'UNAUTHENTICATED',
+    );
     expect(unauthenticated.headers['cache-control']).toBe('no-store');
 
     const basic = await signUp('basic@example.com', 'Basic User');
     const basicDenied = await basic.agent
       .get('/API/V1/ADMIN/USERS')
       .expect(403);
-    expect(basicDenied.body.code).toBe('INSUFFICIENT_CAPABILITY');
+    expect(problemDetailsSchema.parse(basicDenied.body).code).toBe(
+      'INSUFFICIENT_CAPABILITY',
+    );
     expect(basicDenied.headers['cache-control']).toBe('no-store');
 
     const support = await signUp('support@example.com', 'Support User');
@@ -153,7 +165,7 @@ describe('administration HTTP API', () => {
       .get('/api/v1/admin/users')
       .query({ page: 1, pageSize: 20 })
       .expect(200);
-    expect(users.body.total).toBe(2);
+    expect(adminUsersResponseSchema.parse(users.body).total).toBe(2);
     expect(users.headers['cache-control']).toBe('no-store');
     await support.agent
       .get('/api/v1/admin/audit-events')
@@ -165,7 +177,9 @@ describe('administration HTTP API', () => {
       status: 'DISABLED',
     });
     expect(mutation.status).toBe(403);
-    expect(mutation.body.code).toBe('INSUFFICIENT_CAPABILITY');
+    expect(problemDetailsSchema.parse(mutation.body).code).toBe(
+      'INSUFFICIENT_CAPABILITY',
+    );
     expect(mutation.headers['cache-control']).toBe('no-store');
   });
 
@@ -183,7 +197,10 @@ describe('administration HTTP API', () => {
       role: 'SUPPORT',
     });
     expect(allowed.status).toBe(200);
-    expect(allowed.body).toMatchObject({ role: 'SUPPORT', version: 1 });
+    expect(safeUserSchema.parse(allowed.body)).toMatchObject({
+      role: 'SUPPORT',
+      version: 1,
+    });
 
     for (const [targetId, body] of [
       [manager.user.id, { version: 0, status: 'DISABLED' }],
@@ -192,7 +209,9 @@ describe('administration HTTP API', () => {
     ] as const) {
       const denied = await patchUser(manager, targetId, body);
       expect(denied.status).toBe(403);
-      expect(denied.body.code).toBe('TARGET_UPDATE_FORBIDDEN');
+      expect(problemDetailsSchema.parse(denied.body).code).toBe(
+        'TARGET_UPDATE_FORBIDDEN',
+      );
       expect(denied.headers['cache-control']).toBe('no-store');
     }
   });
@@ -217,7 +236,7 @@ describe('administration HTTP API', () => {
       status: 'DISABLED',
     });
     expect(absent.status).toBe(404);
-    expect(absent.body.code).toBe('USER_NOT_FOUND');
+    expect(problemDetailsSchema.parse(absent.body).code).toBe('USER_NOT_FOUND');
     expect(absent.headers['cache-control']).toBe('no-store');
   });
 
@@ -233,21 +252,28 @@ describe('administration HTTP API', () => {
       role: 'ADMIN',
     });
     expect(promoted.status).toBe(200);
-    expect(promoted.body).toMatchObject({ role: 'ADMIN', version: 1 });
+    expect(safeUserSchema.parse(promoted.body)).toMatchObject({
+      role: 'ADMIN',
+      version: 1,
+    });
 
     const selfEdit = await patchUser(admin, admin.user.id, {
       version: 0,
       status: 'DISABLED',
     });
     expect(selfEdit.status).toBe(403);
-    expect(selfEdit.body.code).toBe('TARGET_UPDATE_FORBIDDEN');
+    expect(problemDetailsSchema.parse(selfEdit.body).code).toBe(
+      'TARGET_UPDATE_FORBIDDEN',
+    );
 
     const stale = await patchUser(admin, basic.user.id, {
       version: 99,
       status: 'DISABLED',
     });
     expect(stale.status).toBe(409);
-    expect(stale.body.code).toBe('STALE_USER_VERSION');
+    expect(problemDetailsSchema.parse(stale.body).code).toBe(
+      'STALE_USER_VERSION',
+    );
     const stored = await connection
       .collection('users')
       .findOne({ _id: new connection.base.Types.ObjectId(basic.user.id) });
@@ -277,7 +303,9 @@ describe('administration HTTP API', () => {
           .set('X-Forwarded-For', trustedIpSentinel)
           .send({ version: 99, status: 'DISABLED' })
           .expect(409);
-        expect(stale.body.code).toBe('STALE_USER_VERSION');
+        expect(problemDetailsSchema.parse(stale.body).code).toBe(
+          'STALE_USER_VERSION',
+        );
       }
 
       const blocked = await admin.agent
@@ -386,7 +414,7 @@ describe('administration HTTP API', () => {
     });
     expect(updated.status).toBe(200);
     expect(updated.headers['cache-control']).toBe('no-store');
-    expect(updated.body).toMatchObject({
+    expect(safeUserSchema.parse(updated.body)).toMatchObject({
       role: 'SUPPORT',
       status: 'DISABLED',
       version: 1,
@@ -397,12 +425,11 @@ describe('administration HTTP API', () => {
       .get('/api/v1/admin/audit-events')
       .query({ pageSize: 50 })
       .expect(200);
-    const targetEvents = events.body.items.filter((event: { action: string }) =>
+    const eventsBody = adminAuditEventsResponseSchema.parse(events.body);
+    const targetEvents = eventsBody.items.filter((event) =>
       event.action.startsWith('USER_'),
     );
-    expect(
-      targetEvents.map((event: { action: string }) => event.action),
-    ).toEqual(
+    expect(targetEvents.map((event) => event.action)).toEqual(
       expect.arrayContaining(['USER_ROLE_CHANGED', 'USER_STATUS_CHANGED']),
     );
     for (const event of targetEvents) {
@@ -433,7 +460,7 @@ describe('administration HTTP API', () => {
       .set('X-CSRF-Token', admin.csrfToken)
       .send({ version: 0, status: 'DISABLED' });
     expect(failed.status).toBe(500);
-    expect(failed.body.code).toBe('INTERNAL_ERROR');
+    expect(problemDetailsSchema.parse(failed.body).code).toBe('INTERNAL_ERROR');
     expect(failed.headers['cache-control']).toBe('no-store');
 
     const stored = await connection
@@ -462,11 +489,12 @@ describe('administration HTTP API', () => {
       .get('/api/v1/admin/users')
       .query({ search: 'Ada.*', sort: 'name', direction: 'asc' })
       .expect(200);
-    expect(literal.body.total).toBe(1);
-    expect(
-      literal.body.items.map((user: { name: string }) => user.name),
-    ).toEqual(['Ada.* Literal']);
-    expect(literal.body.summary).toEqual({ total: 4, active: 4 });
+    const literalBody = adminUsersResponseSchema.parse(literal.body);
+    expect(literalBody.total).toBe(1);
+    expect(literalBody.items.map((user) => user.name)).toEqual([
+      'Ada.* Literal',
+    ]);
+    expect(literalBody.summary).toEqual({ total: 4, active: 4 });
 
     const first = await support.agent
       .get('/api/v1/admin/users')
@@ -476,8 +504,10 @@ describe('administration HTTP API', () => {
       .get('/api/v1/admin/users')
       .query({ page: 2, pageSize: 1, sort: 'name', direction: 'asc' })
       .expect(200);
-    expect(first.body.total).toBe(4);
-    expect(first.body.items[0].id).not.toBe(second.body.items[0].id);
+    const firstBody = adminUsersResponseSchema.parse(first.body);
+    const secondBody = adminUsersResponseSchema.parse(second.body);
+    expect(firstBody.total).toBe(4);
+    expect(firstBody.items[0]?.id).not.toBe(secondBody.items[0]?.id);
   });
 
   it('redacts audit persistence fields and arbitrary metadata from SUPPORT', async () => {
@@ -499,9 +529,13 @@ describe('administration HTTP API', () => {
       .get('/api/v1/admin/audit-events')
       .query({ page: 1, pageSize: 50 })
       .expect(200);
-    const rejected = response.body.items.find(
-      (event: { action: string }) => event.action === 'AUTH_SIGNIN_FAILED',
+    const responseBody = adminAuditEventsResponseSchema.parse(response.body);
+    const rejected = responseBody.items.find(
+      (event) => event.action === 'AUTH_SIGNIN_FAILED',
     );
+    if (rejected === undefined) {
+      throw new Error('Expected a rejected sign-in audit event');
+    }
     expect(rejected).toMatchObject({
       summary: 'A sign-in attempt was rejected.',
     });
@@ -511,9 +545,9 @@ describe('administration HTTP API', () => {
       'occurredAt',
       'summary',
     ]);
-    expect(JSON.stringify(response.body)).not.toContain('identityDigest');
-    expect(JSON.stringify(response.body)).not.toContain('raw-json-secret');
-    expect(JSON.stringify(response.body)).not.toContain('requestId');
+    expect(JSON.stringify(responseBody)).not.toContain('identityDigest');
+    expect(JSON.stringify(responseBody)).not.toContain('raw-json-secret');
+    expect(JSON.stringify(responseBody)).not.toContain('requestId');
   });
 
   it('requires exact Origin and CSRF evidence on mutations with no-store errors', async () => {
@@ -527,7 +561,9 @@ describe('administration HTTP API', () => {
       .set('X-CSRF-Token', admin.csrfToken)
       .send({ version: 0, role: 'SUPPORT' });
     expect(missingOrigin.status).toBe(403);
-    expect(missingOrigin.body.code).toBe('HTTP_403');
+    expect(problemDetailsSchema.parse(missingOrigin.body).code).toBe(
+      'HTTP_403',
+    );
     expect(missingOrigin.headers['cache-control']).toBe('no-store');
 
     const missingCsrf = await request(app.getHttpServer())
@@ -536,7 +572,9 @@ describe('administration HTTP API', () => {
       .set('Cookie', admin.cookie)
       .send({ version: 0, role: 'SUPPORT' });
     expect(missingCsrf.status).toBe(403);
-    expect(missingCsrf.body.code).toBe('CSRF_VALIDATION_FAILED');
+    expect(problemDetailsSchema.parse(missingCsrf.body).code).toBe(
+      'CSRF_VALIDATION_FAILED',
+    );
     expect(missingCsrf.headers['cache-control']).toBe('no-store');
 
     await patchUser(admin, target.user.id, {
@@ -565,7 +603,9 @@ describe('administration HTTP API', () => {
     const rejected = responses.filter((response) => response.status !== 200);
     expect(rejected).toHaveLength(1);
     expect(rejected[0]?.status).toBe(409);
-    expect(rejected[0]?.body.code).toBe('STALE_USER_VERSION');
+    expect(problemDetailsSchema.parse(rejected[0]?.body).code).toBe(
+      'STALE_USER_VERSION',
+    );
     expect(
       await connection.collection('users').countDocuments({
         role: 'ADMIN',
@@ -591,7 +631,10 @@ describe('administration HTTP API', () => {
     const outcomes = responses
       .map((response) => ({
         status: response.status,
-        code: response.body.code ?? null,
+        code:
+          response.status === 200
+            ? null
+            : problemDetailsSchema.parse(response.body).code,
         cacheControl: response.headers['cache-control'],
       }))
       .sort((left, right) => left.status - right.status);

@@ -111,12 +111,39 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const request = http.getRequest<ErrorRequest>();
     const response = http.getResponse<{
+      end?: () => void;
+      headersSent?: boolean;
+      writableEnded?: boolean;
       setHeader?: (name: string, value: string) => void;
       status: (status: number) => { json: (body: ProblemDetails) => void };
     }>();
     const requestId = request.id ?? randomUUID();
     const path = requestPath(request.originalUrl ?? request.url);
     const body = mapProblem(exception, requestId, path);
+
+    if (body.status >= 500) {
+      this.logger.error(
+        {
+          code: body.code,
+          errorType:
+            exception instanceof AppError
+              ? 'AppError'
+              : exception instanceof HttpException
+                ? 'HttpException'
+                : exception instanceof Error
+                  ? 'Error'
+                  : 'Unknown',
+          requestId,
+          status: body.status,
+        },
+        'Unexpected request failure',
+      );
+    }
+
+    if (response.headersSent === true) {
+      if (response.writableEnded !== true) response.end?.();
+      return;
+    }
 
     const normalizedRequestPath = path?.toLowerCase() ?? '';
     if (
@@ -137,25 +164,6 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       exception.retryAfterSeconds > 0
     ) {
       response.setHeader?.('Retry-After', String(exception.retryAfterSeconds));
-    }
-
-    if (body.status >= 500) {
-      this.logger.error(
-        {
-          code: body.code,
-          errorType:
-            exception instanceof AppError
-              ? 'AppError'
-              : exception instanceof HttpException
-                ? 'HttpException'
-                : exception instanceof Error
-                  ? 'Error'
-                  : 'Unknown',
-          requestId,
-          status: body.status,
-        },
-        'Unexpected request failure',
-      );
     }
 
     response.status(body.status).json(body);

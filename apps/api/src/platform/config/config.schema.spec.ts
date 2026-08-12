@@ -84,6 +84,46 @@ describe('configSchema', () => {
     expect(parsed.GEMINI_MODEL).toBeUndefined();
   });
 
+  it('generates stable per-process development secrets instead of public constants', () => {
+    const script = [
+      "import { createHash } from 'node:crypto';",
+      "import { configSchema } from './src/platform/config/config.schema.ts';",
+      "const config = configSchema.parse({ NODE_ENV: 'development' });",
+      "process.stdout.write(createHash('sha256').update(config.CSRF_SECRET + ':' + config.IDENTITY_HASH_SECRET).digest('hex'));",
+    ].join(' ');
+    const run = () =>
+      spawnSync(
+        process.execPath,
+        ['--import', 'tsx', '--input-type=module', '--eval', script],
+        {
+          cwd: path.resolve(
+            path.dirname(fileURLToPath(import.meta.url)),
+            '../../..',
+          ),
+          encoding: 'utf8',
+          env: { ...process.env, APP_BOOTSTRAP: 'false' },
+          shell: false,
+        },
+      );
+
+    const first = run();
+    const second = run();
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    expect(first.stderr).toBe('');
+    expect(second.stderr).toBe('');
+    expect(first.stdout).toMatch(/^[0-9a-f]{64}$/);
+    expect(second.stdout).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.stdout).not.toBe(second.stdout);
+
+    const withinProcessA = configSchema.parse({ NODE_ENV: 'development' });
+    const withinProcessB = configSchema.parse({ NODE_ENV: 'development' });
+    expect(withinProcessA.CSRF_SECRET).toBe(withinProcessB.CSRF_SECRET);
+    expect(withinProcessA.IDENTITY_HASH_SECRET).toBe(
+      withinProcessB.IDENTITY_HASH_SECRET,
+    );
+  });
+
   it('still treats empty required production values as missing', () => {
     expect(() =>
       configSchema.parse({ ...productionConfig, CSRF_SECRET: '' }),
@@ -338,6 +378,22 @@ describe('configSchema', () => {
   it('rejects a non-boolean SWAGGER_ENABLED value', () => {
     expect(() =>
       configSchema.parse({ NODE_ENV: 'test', SWAGGER_ENABLED: 'yes' }),
+    ).toThrow();
+  });
+
+  it.each([
+    ['true', true],
+    ['false', false],
+  ] as const)('parses SERVE_STATIC_ASSETS=%s', (value, expected) => {
+    expect(
+      configSchema.parse({ NODE_ENV: 'test', SERVE_STATIC_ASSETS: value })
+        .SERVE_STATIC_ASSETS,
+    ).toBe(expected);
+  });
+
+  it('rejects a non-boolean SERVE_STATIC_ASSETS value', () => {
+    expect(() =>
+      configSchema.parse({ NODE_ENV: 'test', SERVE_STATIC_ASSETS: 'yes' }),
     ).toThrow();
   });
 });

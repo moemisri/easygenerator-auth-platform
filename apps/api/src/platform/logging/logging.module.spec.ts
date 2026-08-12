@@ -32,7 +32,7 @@ describe('createPinoHttpOptions', () => {
         query: { email: 'query-object-sentinel' },
         body: { password: 'body-password-sentinel' },
         socket: { remoteAddress: 'socket-address-sentinel' },
-      } as never),
+      }),
     ).toEqual({
       id: 'server-owned-request-id',
       method: 'POST',

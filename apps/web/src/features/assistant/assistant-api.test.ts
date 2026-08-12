@@ -225,6 +225,8 @@ describe('openAssistantStream', () => {
     [
       'a malformed problem response',
       HttpResponse.json({ stack: 'secret' }, { status: 500 }),
+      ApiProblem,
+      { title: 'Request failed' },
     ],
     [
       'a missing response body',
@@ -232,24 +234,25 @@ describe('openAssistantStream', () => {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
       }),
+      AssistantProtocolError,
+      {},
     ],
-  ])('turns %s into a safe response error', async (_, response) => {
-    server.use(http.post('/api/v1/assistant/chat', () => response));
+  ])(
+    'turns %s into a safe response error',
+    async (_, response, ErrorType, expectedShape) => {
+      server.use(http.post('/api/v1/assistant/chat', () => response));
 
-    const error = await openAssistantStream(
-      { message: 'How does authentication work?', history: [] },
-      csrfToken,
-      new AbortController().signal,
-    ).catch((caught: unknown) => caught);
+      const error = await openAssistantStream(
+        { message: 'How does authentication work?', history: [] },
+        csrfToken,
+        new AbortController().signal,
+      ).catch((caught: unknown) => caught);
 
-    if (response.status >= 400) {
-      expect(error).toBeInstanceOf(ApiProblem);
-      expect(error).toMatchObject({ title: 'Request failed' });
+      expect(error).toBeInstanceOf(ErrorType);
+      expect(error).toMatchObject(expectedShape);
       expect(String(error)).not.toContain('secret');
-    } else {
-      expect(error).toBeInstanceOf(AssistantProtocolError);
-    }
-  });
+    },
+  );
 
   it.each([
     'text/event-streaming',

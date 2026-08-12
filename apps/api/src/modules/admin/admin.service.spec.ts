@@ -33,11 +33,13 @@ const target: SafeUser = {
 function sessionConnection() {
   let transactionOpen = false;
   const session = {
-    abortTransaction: vi.fn(async () => {
+    abortTransaction: vi.fn(() => {
       transactionOpen = false;
+      return Promise.resolve();
     }),
-    commitTransaction: vi.fn(async () => {
+    commitTransaction: vi.fn(() => {
       transactionOpen = false;
+      return Promise.resolve();
     }),
     endSession: vi.fn().mockResolvedValue(undefined),
     inTransaction: vi.fn(() => transactionOpen),
@@ -57,16 +59,17 @@ function sessionConnection() {
 
 function dependencies() {
   const users = {
-    countActiveAdmins: vi.fn().mockResolvedValue(2),
     findSafeById: vi.fn(
-      async (id: string, session?: ClientSession): Promise<SafeUser | null> => {
+      (id: string, session?: ClientSession): Promise<SafeUser | null> => {
         void session;
-        return id === actor.id ? actor : id === target.id ? target : null;
+        return Promise.resolve(
+          id === actor.id ? actor : id === target.id ? target : null,
+        );
       },
     ),
     listAdminUsers: vi.fn(),
     updateAdminUser: vi.fn(
-      async (
+      (
         _id: string,
         expectedVersion: number,
         changes: Partial<Pick<SafeUser, 'role' | 'status'>>,
@@ -183,12 +186,13 @@ describe('AdminService', () => {
 
   it('uses the transaction copy of the actor and fails closed after a role change', async () => {
     const { service, users } = dependencies();
-    users.findSafeById.mockImplementation(async (id, session) => {
+    users.findSafeById.mockImplementation((id, session) => {
       if (id === actor.id && session !== undefined) {
-        return { ...actor, role: 'MANAGER' };
+        return Promise.resolve({ ...actor, role: 'MANAGER' });
       }
-      if (id === target.id) return { ...target, role: 'ADMIN' };
-      return null;
+      if (id === target.id)
+        return Promise.resolve({ ...target, role: 'ADMIN' });
+      return Promise.resolve(null);
     });
 
     await expect(
@@ -207,13 +211,15 @@ describe('AdminService', () => {
   it('acquires the shared security revision before rereading a target that changed to ADMIN', async () => {
     const { adminRepository, service, users } = dependencies();
     const sequence: string[] = [];
-    adminRepository.incrementSecurityRevision.mockImplementation(async () => {
+    adminRepository.incrementSecurityRevision.mockImplementation(() => {
       sequence.push('security');
+      return Promise.resolve();
     });
-    users.findSafeById.mockImplementation(async (id, session) => {
+    users.findSafeById.mockImplementation((id, session) => {
       if (session !== undefined) sequence.push(`read:${id}`);
-      if (id === actor.id) return actor;
-      return { ...target, role: 'ADMIN' };
+      return Promise.resolve(
+        id === actor.id ? actor : { ...target, role: 'ADMIN' },
+      );
     });
 
     await service.updateUser(
@@ -262,8 +268,8 @@ describe('AdminService', () => {
 
   it('rejects missing targets, stale versions, and loaded no-ops before writes', async () => {
     const missing = dependencies();
-    missing.users.findSafeById.mockImplementation(async (id) =>
-      id === actor.id ? actor : null,
+    missing.users.findSafeById.mockImplementation((id) =>
+      Promise.resolve(id === actor.id ? actor : null),
     );
     await expect(
       missing.service.updateUser(
@@ -299,11 +305,11 @@ describe('AdminService', () => {
 
   it('rejects an actor that is no longer active inside the transaction', async () => {
     const { service, users } = dependencies();
-    users.findSafeById.mockImplementation(async (id, session) => {
+    users.findSafeById.mockImplementation((id, session) => {
       if (id === actor.id && session !== undefined) {
-        return { ...actor, status: 'DISABLED' };
+        return Promise.resolve({ ...actor, status: 'DISABLED' });
       }
-      return target;
+      return Promise.resolve(target);
     });
 
     await expect(
@@ -316,13 +322,15 @@ describe('AdminService', () => {
     ).rejects.toMatchObject({ code: 'UNAUTHENTICATED', status: 401 });
   });
 
-  it('serializes active-admin removal and protects the last active admin', async () => {
+  it('serializes cross-admin removal without an unreachable active-admin count', async () => {
     const { adminRepository, dbSession, service, users } = dependencies();
-    users.findSafeById.mockImplementation(async (id) =>
-      id === actor.id ? actor : { ...target, role: 'ADMIN', status: 'ACTIVE' },
+    users.findSafeById.mockImplementation((id) =>
+      Promise.resolve(
+        id === actor.id
+          ? actor
+          : { ...target, role: 'ADMIN', status: 'ACTIVE' },
+      ),
     );
-    users.countActiveAdmins.mockResolvedValue(1);
-
     await expect(
       service.updateUser(
         actor,
@@ -330,15 +338,11 @@ describe('AdminService', () => {
         { version: 3, status: 'DISABLED' },
         { requestId: 'request-id' },
       ),
-    ).rejects.toMatchObject({
-      code: 'LAST_ACTIVE_ADMIN_PROTECTED',
-      status: 409,
-    });
+    ).resolves.toMatchObject({ status: 'DISABLED' });
     expect(adminRepository.incrementSecurityRevision).toHaveBeenCalledWith(
       dbSession,
     );
-    expect(users.countActiveAdmins).toHaveBeenCalledWith(dbSession);
-    expect(users.updateAdminUser).not.toHaveBeenCalled();
+    expect(users.updateAdminUser).toHaveBeenCalledOnce();
   });
 
   it('serializes promotion into ADMIN membership', async () => {

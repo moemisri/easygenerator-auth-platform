@@ -52,7 +52,7 @@ try {
       'run',
       '--rm',
       '-e',
-      'VITEST=true',
+      'APP_BOOTSTRAP=false',
       '-e',
       'NODE_ENV=development',
       '--entrypoint',

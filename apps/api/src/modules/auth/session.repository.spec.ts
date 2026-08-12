@@ -25,7 +25,7 @@ describe('SessionRepository', () => {
       revokedAt: null,
     });
     expect(create).toHaveBeenCalledWith([newSession], { session: dbSession });
-    expect(create.mock.calls[0]?.[0]?.[0]).not.toHaveProperty('rawToken');
+    expect(JSON.stringify(create.mock.calls)).not.toContain('rawToken');
   });
 
   it('looks sessions up only by digest', async () => {
@@ -70,7 +70,7 @@ describe('SessionRepository', () => {
       { session: dbSession },
     );
     expect(updateMany).toHaveBeenCalledWith(
-      { userId: newSession.userId },
+      { userId: newSession.userId, revokedAt: null },
       { $set: { revokedAt } },
       { session: dbSession },
     );

@@ -6,7 +6,7 @@
   "scripts": {
     "bootstrap:admin": "node dist/cli/bootstrap-admin.js",
     "build": "nest build",
-    "dev": "tsx watch src/main.ts",
+    "dev": "NODE_OPTIONS=--conditions=development tsx watch src/main.ts",
     "lint": "eslint src test",
     "test": "node ../../scripts/run-api-tests.mjs",
     "test:integration": "node ../../scripts/run-integration-tests.mjs",

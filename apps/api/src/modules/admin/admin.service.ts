@@ -15,7 +15,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { SessionService } from '../auth/session.service.js';
 import { UsersService } from '../users/users.service.js';
 import { AdminRepository } from './admin.repository.js';
-import { canUpdateUser, removesActiveAdmin } from './authorization.policy.js';
+import { canUpdateUser } from './authorization.policy.js';
 
 const MAX_TRANSACTION_ATTEMPTS = 3;
 const MIN_RETRY_DELAY_MS = 5;
@@ -34,7 +34,8 @@ function hasErrorLabel(error: unknown, label: string): boolean {
   ) {
     return false;
   }
-  return error.hasErrorLabel(label) === true;
+  const hasLabel = error.hasErrorLabel as (candidate: string) => unknown;
+  return hasLabel.call(error, label) === true;
 }
 
 @Injectable()
@@ -149,16 +150,6 @@ export class AdminService {
         400,
         'The proposed user update does not change the current state.',
       );
-    }
-
-    if (
-      removesActiveAdmin(target, {
-        role: proposedRole,
-        status: proposedStatus,
-      }) &&
-      (await this.users.countActiveAdmins(dbSession)) <= 1
-    ) {
-      throw new AppError('LAST_ACTIVE_ADMIN_PROTECTED', 409);
     }
 
     const changes = {

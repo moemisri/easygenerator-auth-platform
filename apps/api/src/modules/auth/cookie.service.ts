@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-const sessionLifetimeMilliseconds = 7 * 24 * 60 * 60 * 1000;
-
 type SameSite = 'strict';
 
 interface CookieOptions {
@@ -29,13 +27,13 @@ export interface CookieResponse {
 export class CookieService {
   private readonly cookieName: '__Host-session' | 'session';
   private readonly secure: boolean;
+  private readonly sessionLifetimeMilliseconds: number;
 
   constructor(config: ConfigService) {
-    const isProduction =
-      config.getOrThrow<'development' | 'test' | 'production'>('NODE_ENV') ===
-      'production';
-    this.cookieName = isProduction ? '__Host-session' : 'session';
-    this.secure = isProduction;
+    this.secure = config.getOrThrow<boolean>('COOKIE_SECURE');
+    this.cookieName = this.secure ? '__Host-session' : 'session';
+    this.sessionLifetimeMilliseconds =
+      config.getOrThrow<number>('SESSION_TTL_SECONDS') * 1_000;
   }
 
   read(cookies: Record<string, string | undefined> | undefined): string | null {
@@ -49,7 +47,7 @@ export class CookieService {
       secure: this.secure,
       sameSite: 'strict',
       path: '/',
-      maxAge: sessionLifetimeMilliseconds,
+      maxAge: this.sessionLifetimeMilliseconds,
     });
   }
 

@@ -11,6 +11,7 @@ import type {
   CorpusChunk,
   RetrievedChunk,
 } from './assistant.types.js';
+import { fitExcerptChunks } from './assistant.types.js';
 import { assistantProtectionUnavailable } from './assistant.errors.js';
 import { assistantRedisNamespace } from './assistant-redis.js';
 
@@ -39,22 +40,25 @@ export class AssistantCacheService {
       );
       if (value === null) return null;
       const parsed: unknown = JSON.parse(value);
-      if (
-        !Array.isArray(parsed) ||
-        parsed.length > 4 ||
-        parsed.some((id) => typeof id !== 'string') ||
-        new Set(parsed).size !== parsed.length
-      ) {
+      if (!Array.isArray(parsed) || parsed.length > 4) {
+        throw assistantProtectionUnavailable();
+      }
+      const chunkIds: string[] = [];
+      for (const id of parsed) {
+        if (typeof id !== 'string') throw assistantProtectionUnavailable();
+        chunkIds.push(id);
+      }
+      if (new Set(chunkIds).size !== chunkIds.length) {
         throw assistantProtectionUnavailable();
       }
       const chunksById = new Map(
         corpus.chunks.map((chunk) => [chunk.id, chunk] as const),
       );
-      const chunks = parsed.map((id) => chunksById.get(id));
+      const chunks = chunkIds.map((id) => chunksById.get(id));
       if (chunks.some((chunk) => chunk === undefined)) {
         throw assistantProtectionUnavailable();
       }
-      return chunks as CorpusChunk[];
+      return fitExcerptChunks(chunks as CorpusChunk[]);
     } catch {
       throw assistantProtectionUnavailable();
     }

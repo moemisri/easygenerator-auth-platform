@@ -28,7 +28,7 @@ const random: AssistantLeaseRandomSource = {
 
 describe('AssistantConcurrencyService', () => {
   it('acquires a 35-second NX lease', async () => {
-    const set = vi.fn(async () => 'OK' as const);
+    const set = vi.fn(() => Promise.resolve('OK' as const));
     const leases = new AssistantConcurrencyService(
       { set } as unknown as Redis,
       config(),
@@ -54,7 +54,7 @@ describe('AssistantConcurrencyService', () => {
 
   it('returns a stable 429 with Retry-After when the lease is held', async () => {
     const leases = new AssistantConcurrencyService(
-      { set: vi.fn(async () => null) } as unknown as Redis,
+      { set: vi.fn(() => Promise.resolve(null)) } as unknown as Redis,
       config(),
       random,
       new PrivacyKeyDigestService(config()),
@@ -68,7 +68,7 @@ describe('AssistantConcurrencyService', () => {
   });
 
   it('releases only through compare-and-delete with the owning token', async () => {
-    const eval_ = vi.fn(async () => 1);
+    const eval_ = vi.fn(() => Promise.resolve(1));
     const leases = new AssistantConcurrencyService(
       { eval: eval_ } as unknown as Redis,
       config(),
@@ -89,11 +89,54 @@ describe('AssistantConcurrencyService', () => {
     );
   });
 
+  it('renews only the owning lease token for another 35 seconds', async () => {
+    const eval_ = vi.fn(() => Promise.resolve(1));
+    const leases = new AssistantConcurrencyService(
+      { eval: eval_ } as unknown as Redis,
+      config(),
+      random,
+      new PrivacyKeyDigestService(config()),
+    );
+    const lease = {
+      key: `easygenerator:test:assistant:active:${actorDigest}`,
+      token: 'lease-token-a',
+    };
+
+    await leases.renew(lease);
+
+    expect(eval_).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('EXPIRE', KEYS[1], ARGV[2])"),
+      1,
+      lease.key,
+      lease.token,
+      35,
+    );
+  });
+
+  it.each([0, null, 'OK', 2, -1])(
+    'fails closed for a malformed or lost lease renewal result: %j',
+    async (result) => {
+      const leases = new AssistantConcurrencyService(
+        { eval: vi.fn(() => Promise.resolve(result)) } as unknown as Redis,
+        config(),
+        random,
+        new PrivacyKeyDigestService(config()),
+      );
+
+      await expect(
+        leases.renew({ key: 'safe-key', token: 'safe-token' }),
+      ).rejects.toMatchObject({
+        code: 'ASSISTANT_PROTECTION_UNAVAILABLE',
+        status: 503,
+      });
+    },
+  );
+
   it.each([null, 'OK', 2, -1])(
     'fails closed for a malformed lease release result: %j',
     async (result) => {
       const leases = new AssistantConcurrencyService(
-        { eval: vi.fn(async () => result) } as unknown as Redis,
+        { eval: vi.fn(() => Promise.resolve(result)) } as unknown as Redis,
         config(),
         random,
         new PrivacyKeyDigestService(config()),
@@ -111,9 +154,7 @@ describe('AssistantConcurrencyService', () => {
   it('fails closed when acquisition rejects', async () => {
     const leases = new AssistantConcurrencyService(
       {
-        set: vi.fn(async () => {
-          throw new Error('Redis unavailable');
-        }),
+        set: vi.fn(() => Promise.reject(new Error('Redis unavailable'))),
       } as unknown as Redis,
       config(),
       random,

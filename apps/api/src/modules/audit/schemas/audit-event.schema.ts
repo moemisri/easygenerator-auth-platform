@@ -17,6 +17,9 @@ export const auditActions = [
 export type AuditAction = (typeof auditActions)[number];
 export type AuditEventDocument = HydratedDocument<AuditEvent>;
 
+/** Audit records are retained for one year, then removed by MongoDB TTL. */
+export const AUDIT_RETENTION_SECONDS = 365 * 24 * 60 * 60;
+
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class AuditEvent {
   @Prop({ enum: auditActions, required: true, type: String })
@@ -38,6 +41,8 @@ export class AuditEvent {
 }
 
 export const AuditEventSchema = SchemaFactory.createForClass(AuditEvent);
-AuditEventSchema.index({ createdAt: -1 });
-AuditEventSchema.index({ actorId: 1, createdAt: -1 });
-AuditEventSchema.index({ targetId: 1, createdAt: -1 });
+AuditEventSchema.index({ createdAt: -1, _id: -1 });
+AuditEventSchema.index(
+  { createdAt: 1 },
+  { expireAfterSeconds: AUDIT_RETENTION_SECONDS },
+);

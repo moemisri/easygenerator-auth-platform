@@ -66,6 +66,7 @@ describe('route accessibility', () => {
     ['/signup', 'Set up your account.'],
     ['/signin', 'Sign in to continue.'],
   ])('has no serious or critical issues on %s', async (path, heading) => {
+    expect.hasAssertions();
     const { container } = renderRoute(path);
     await screen.findByRole('heading', { name: heading });
 
@@ -73,6 +74,7 @@ describe('route accessibility', () => {
   });
 
   it('covers the restored protected application route', async () => {
+    expect.hasAssertions();
     const { container } = renderRoute('/app', session());
     await screen.findByRole('heading', {
       name: 'Welcome to the application.',
@@ -82,6 +84,7 @@ describe('route accessibility', () => {
   });
 
   it('covers the loaded admin route and its confirmation dialog', async () => {
+    expect.hasAssertions();
     const admin: SafeUser = {
       ...baseUser,
       id: 'admin-accessibility',
@@ -124,6 +127,7 @@ describe('route accessibility', () => {
     [false, 'The assistant is not enabled for this environment.'],
     [true, 'Ask about access, security, or this application.'],
   ])('covers the assistant enabled=%s state', async (enabled, heading) => {
+    expect.hasAssertions();
     const { container } = renderRoute('/assistant', session(baseUser, enabled));
     await screen.findByRole('heading', { name: heading });
 

@@ -62,52 +62,52 @@ class InMemoryUsersRepository {
   lastBootstrapKey: string | undefined;
   lastBootstrapSession: ClientSession | undefined;
 
-  async create(user: NewUser, dbSession?: ClientSession): Promise<StoredUser> {
+  create(user: NewUser, dbSession?: ClientSession): Promise<StoredUser> {
     this.lastCreate = { ...user };
     this.lastCreateSession = dbSession;
-    return storedUser;
+    return Promise.resolve(storedUser);
   }
 
-  async findForAuthentication(
+  findForAuthentication(
     emailKey: string,
   ): Promise<StoredUserWithPassword | null> {
     this.lastAuthenticationKey = emailKey;
-    return this.authenticationResult;
+    return Promise.resolve(this.authenticationResult);
   }
 
-  async findSafeById(
+  findSafeById(
     _id?: string,
     dbSession?: ClientSession,
   ): Promise<StoredUser | null> {
     this.lastLookupSession = dbSession;
-    return this.safeResult;
+    return Promise.resolve(this.safeResult);
   }
 
-  async findAdminPage(): Promise<StoredUserPage> {
-    return this.pageResult;
+  findAdminPage(): Promise<StoredUserPage> {
+    return Promise.resolve(this.pageResult);
   }
 
-  async updateAdminUser(
+  updateAdminUser(
     id: string,
     expectedVersion: number,
     changes: AdminUserChanges,
     dbSession: ClientSession,
   ): Promise<Omit<StoredUser, 'emailKey'> | null> {
     this.lastUpdate = { id, expectedVersion, changes, dbSession };
-    return { ...storedUser, ...changes, version: expectedVersion + 1 };
+    return Promise.resolve({
+      ...storedUser,
+      ...changes,
+      version: expectedVersion + 1,
+    });
   }
 
-  async countActiveAdmins(): Promise<number> {
-    return 2;
-  }
-
-  async bootstrapConflict(
+  bootstrapConflict(
     emailKey: string,
     dbSession: ClientSession,
   ): Promise<'ADMIN_EXISTS' | 'EMAIL_EXISTS' | null> {
     this.lastBootstrapKey = emailKey;
     this.lastBootstrapSession = dbSession;
-    return this.bootstrapConflictResult;
+    return Promise.resolve(this.bootstrapConflictResult);
   }
 }
 
@@ -205,7 +205,7 @@ describe('UsersService', () => {
     });
   });
 
-  it('forwards transaction-bound reads, versioned updates, and admin counts', async () => {
+  it('forwards transaction-bound reads and versioned updates', async () => {
     const dbSession = { id: 'transaction' } as unknown as ClientSession;
 
     await expect(
@@ -221,7 +221,6 @@ describe('UsersService', () => {
       changes: { role: 'SUPPORT' },
       dbSession,
     });
-    await expect(service.countActiveAdmins(dbSession)).resolves.toBe(2);
   });
 
   it('normalizes bootstrap checks and creates only an ACTIVE ADMIN', async () => {

@@ -13,6 +13,10 @@ class ReadUsersController {
   undecorated(): void {}
 }
 
+function controllerHandler(name: 'list' | 'undecorated'): () => void {
+  return Reflect.get(ReadUsersController.prototype, name);
+}
+
 function contextFor(handler: () => void, role?: unknown): ExecutionContext {
   const request =
     role === undefined
@@ -35,15 +39,13 @@ describe('CapabilityGuard', () => {
 
   it('allows a current role with the named capability', () => {
     expect(
-      guard.canActivate(
-        contextFor(ReadUsersController.prototype.list, 'SUPPORT'),
-      ),
+      guard.canActivate(contextFor(controllerHandler('list'), 'SUPPORT')),
     ).toBe(true);
   });
 
   it('denies a current role without the named capability', () => {
     expect(() =>
-      guard.canActivate(contextFor(ReadUsersController.prototype.list, 'USER')),
+      guard.canActivate(contextFor(controllerHandler('list'), 'USER')),
     ).toThrowError(
       expect.objectContaining({
         code: 'INSUFFICIENT_CAPABILITY',
@@ -54,9 +56,7 @@ describe('CapabilityGuard', () => {
 
   it('fails closed when capability metadata is missing', () => {
     expect(() =>
-      guard.canActivate(
-        contextFor(ReadUsersController.prototype.undecorated, 'ADMIN'),
-      ),
+      guard.canActivate(contextFor(controllerHandler('undecorated'), 'ADMIN')),
     ).toThrowError(
       expect.objectContaining({
         code: 'INSUFFICIENT_CAPABILITY',
@@ -69,7 +69,7 @@ describe('CapabilityGuard', () => {
     'fails closed for malformed/future persisted role %j',
     (role) => {
       expect(() =>
-        guard.canActivate(contextFor(ReadUsersController.prototype.list, role)),
+        guard.canActivate(contextFor(controllerHandler('list'), role)),
       ).toThrowError(
         expect.objectContaining({
           code: 'INSUFFICIENT_CAPABILITY',
@@ -81,7 +81,7 @@ describe('CapabilityGuard', () => {
 
   it('reports unauthenticated when SessionGuard did not attach a principal', () => {
     expect(() =>
-      guard.canActivate(contextFor(ReadUsersController.prototype.list)),
+      guard.canActivate(contextFor(controllerHandler('list'))),
     ).toThrowError(
       expect.objectContaining({
         code: 'UNAUTHENTICATED',

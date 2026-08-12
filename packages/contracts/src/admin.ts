@@ -25,7 +25,7 @@ export const adminUserIdParamsSchema = z
 
 export const adminUsersQuerySchema = z
   .object({
-    page: queryInteger(1).default(1),
+    page: queryInteger(1, 10_000).default(1),
     pageSize: queryInteger(1, 50).default(20),
     search: z
       .string()
@@ -68,7 +68,7 @@ export const adminUsersResponseSchema = z
 
 export const adminAuditEventsQuerySchema = z
   .object({
-    page: queryInteger(1).default(1),
+    page: queryInteger(1, 10_000).default(1),
     pageSize: queryInteger(1, 50).default(20),
   })
   .strict();

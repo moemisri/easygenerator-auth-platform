@@ -2,6 +2,7 @@
 .superpowers/
 node_modules/
 dist/
+apps/api/public/
 coverage/
 test-results/
 playwright-report/

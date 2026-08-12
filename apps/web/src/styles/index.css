@@ -429,6 +429,10 @@ a {
 .user-table-wrap {
   overflow-x: auto;
 }
+.user-table-wrap:focus-visible {
+  outline: 3px solid var(--indigo);
+  outline-offset: 3px;
+}
 .user-table {
   width: 100%;
   border-collapse: collapse;
@@ -516,38 +520,6 @@ a {
 }
 .button-danger:hover {
   background: #7f2929;
-}
-.user-card-list {
-  display: none;
-  list-style: none;
-  margin: 1rem 0 0;
-  padding: 0;
-}
-.user-card {
-  padding: 1.15rem 0;
-  border-top: 1px solid var(--line);
-}
-.user-card-heading {
-  margin-bottom: 1rem;
-}
-.user-card dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin: 0 0 1rem;
-}
-.user-card dl div {
-  min-width: 0;
-}
-.user-card dt {
-  margin-bottom: 0.3rem;
-  color: var(--muted);
-  font: 600 0.65rem var(--mono);
-  text-transform: uppercase;
-}
-.user-card dd {
-  margin: 0;
-  font-size: 0.82rem;
 }
 .pagination {
   display: flex;
@@ -656,6 +628,12 @@ a {
   padding: 0.75rem;
   color: var(--success);
   font-size: 0.8rem;
+}
+.action-notice:empty {
+  height: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
 .admin-dashboard > .action-notice {
   grid-column: 1 / -1;
@@ -791,6 +769,11 @@ a {
   display: grid;
   gap: 2rem;
   min-height: 18rem;
+  max-height: min(58vh, 42rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 0.5rem;
 }
 .assistant-empty,
 .assistant-disabled {
@@ -1108,12 +1091,6 @@ a {
   }
   .summary-strip p {
     margin-top: 0.5rem;
-  }
-  .user-table-wrap {
-    display: none;
-  }
-  .user-card-list {
-    display: block;
   }
   .user-actions {
     grid-template-columns: 1fr 1fr;

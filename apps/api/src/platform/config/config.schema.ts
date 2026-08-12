@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 export const defaults = {
@@ -7,12 +8,16 @@ export const defaults = {
   COOKIE_SECURE: false,
   ASSISTANT_ENABLED: false,
   SWAGGER_ENABLED: false,
+  SERVE_STATIC_ASSETS: false,
+} as const;
+
+const processDefaults = {
+  CSRF_SECRET: randomBytes(32).toString('base64'),
+  IDENTITY_HASH_SECRET: randomBytes(32).toString('base64'),
 } as const;
 
 const developmentDefaults = {
   APP_ORIGIN: 'http://localhost:5173',
-  CSRF_SECRET: Buffer.alloc(32, 1).toString('base64'),
-  IDENTITY_HASH_SECRET: Buffer.alloc(32, 2).toString('base64'),
   LOG_LEVEL: 'debug' as const,
   MONGODB_URI: 'mongodb://127.0.0.1:27017/easygenerator_auth',
   REDIS_URL: 'redis://127.0.0.1:6379',
@@ -98,11 +103,12 @@ const rawConfigSchema = z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .optional(),
     APP_ORIGIN: applicationOrigin.optional(),
-    RENDER_EXTERNAL_HOSTNAME: z.string().min(1).optional(),
+    RENDER_EXTERNAL_HOSTNAME: optionalEnvironmentValue(z.string().min(1)),
     SESSION_TTL_SECONDS: integerFromEnvironment(60, 31_536_000).optional(),
     COOKIE_SECURE: booleanFromEnvironment.optional(),
     ASSISTANT_ENABLED: booleanFromEnvironment.optional(),
     SWAGGER_ENABLED: booleanFromEnvironment.optional(),
+    SERVE_STATIC_ASSETS: booleanFromEnvironment.optional(),
     GEMINI_API_KEY: optionalEnvironmentValue(z.string().trim().min(1)),
     GEMINI_MODEL: optionalEnvironmentValue(z.string().trim().min(1)),
     ASSISTANT_CORPUS_PATH: z.literal('docs/assistant-public').optional(),
@@ -213,9 +219,9 @@ const rawConfigSchema = z
         config.DB_NAME ??
         (config.NODE_ENV === 'test' ? testDatabaseName : defaults.DB_NAME),
       REDIS_URL: config.REDIS_URL ?? developmentDefaults.REDIS_URL,
-      CSRF_SECRET: config.CSRF_SECRET ?? developmentDefaults.CSRF_SECRET,
+      CSRF_SECRET: config.CSRF_SECRET ?? processDefaults.CSRF_SECRET,
       IDENTITY_HASH_SECRET:
-        config.IDENTITY_HASH_SECRET ?? developmentDefaults.IDENTITY_HASH_SECRET,
+        config.IDENTITY_HASH_SECRET ?? processDefaults.IDENTITY_HASH_SECRET,
       TRUST_PROXY_HOPS:
         config.TRUST_PROXY_HOPS ?? developmentDefaults.TRUST_PROXY_HOPS,
       LOG_LEVEL: config.LOG_LEVEL ?? developmentDefaults.LOG_LEVEL,
@@ -227,6 +233,8 @@ const rawConfigSchema = z
         config.COOKIE_SECURE ?? (isProduction ? true : defaults.COOKIE_SECURE),
       ASSISTANT_ENABLED: config.ASSISTANT_ENABLED ?? defaults.ASSISTANT_ENABLED,
       SWAGGER_ENABLED: config.SWAGGER_ENABLED ?? defaults.SWAGGER_ENABLED,
+      SERVE_STATIC_ASSETS:
+        config.SERVE_STATIC_ASSETS ?? defaults.SERVE_STATIC_ASSETS,
       GEMINI_API_KEY: config.GEMINI_API_KEY,
       GEMINI_MODEL: config.GEMINI_MODEL,
       ASSISTANT_CORPUS_PATH:

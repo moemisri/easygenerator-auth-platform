@@ -27,7 +27,11 @@ describe('AppModule platform wiring', () => {
   });
 
   it('integrates config, Pino, guards, infrastructure, health, and shutdown', async () => {
-    process.env = { NODE_ENV: 'test', LOG_LEVEL: 'silent' };
+    process.env = {
+      NODE_ENV: 'test',
+      LOG_LEVEL: 'silent',
+      SERVE_STATIC_ASSETS: 'true',
+    };
     vi.resetModules();
 
     const [
@@ -50,14 +54,15 @@ describe('AppModule platform wiring', () => {
     const mongoConnection = {
       db: {
         admin: () => ({
-          ping: async () => {
+          ping: () => {
             mongoPings += 1;
-            return { ok: 1 };
+            return Promise.resolve({ ok: 1 });
           },
         }),
       },
-      close: async () => {
+      close: () => {
         mongoCloses += 1;
+        return Promise.resolve();
       },
       model: (name: string) => {
         const model = { modelName: name };
@@ -67,14 +72,15 @@ describe('AppModule platform wiring', () => {
       models: mongoModels,
     };
     let redisPings = 0;
-    let redisDisconnects = 0;
+    let redisQuits = 0;
     const redis = {
-      ping: async () => {
+      ping: () => {
         redisPings += 1;
-        return 'PONG' as const;
+        return Promise.resolve('PONG' as const);
       },
-      disconnect: () => {
-        redisDisconnects += 1;
+      quit: () => {
+        redisQuits += 1;
+        return Promise.resolve('OK' as const);
       },
     };
 
@@ -102,10 +108,13 @@ describe('AppModule platform wiring', () => {
     await app.init();
 
     expect(config.get('APP_ORIGIN')).toBe('http://localhost:5173');
+    expect(config.get('SERVE_STATIC_ASSETS')).toBe(true);
     expect(app.get(Logger)).toBeInstanceOf(Logger);
     expect(await app.resolve(PinoLogger)).toBeInstanceOf(PinoLogger);
     expect(app.get(REDIS)).toBe(redis);
-    await expect(app.get(DATABASE_HEALTH).ping()).resolves.toEqual({ ok: 1 });
+    await expect(
+      app.get<{ ping(): Promise<unknown> }>(DATABASE_HEALTH).ping(),
+    ).resolves.toEqual({ ok: 1 });
 
     await request(app.getHttpServer())
       .get('/health/live')
@@ -130,6 +139,6 @@ describe('AppModule platform wiring', () => {
     await app.close();
     app = undefined;
     expect(mongoCloses).toBe(1);
-    expect(redisDisconnects).toBe(1);
+    expect(redisQuits).toBe(1);
   });
 });

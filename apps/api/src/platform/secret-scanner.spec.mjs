@@ -238,6 +238,22 @@ describe('secret scanner', () => {
       fs.rmSync(fixture, { recursive: true });
     }
   });
+
+  it('ignores a tracked file deleted from the current worktree', () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'eg-secret-scan-'));
+    const originalDirectory = process.cwd();
+    try {
+      expect(run(fixture, ['init']).status).toBe(0);
+      fs.writeFileSync(path.join(fixture, 'deleted.txt'), 'safe\n');
+      expect(run(fixture, ['add', 'deleted.txt']).status).toBe(0);
+      fs.unlinkSync(path.join(fixture, 'deleted.txt'));
+      process.chdir(fixture);
+      expect(runScan(['--tracked'])).toBe(0);
+    } finally {
+      process.chdir(originalDirectory);
+      fs.rmSync(fixture, { recursive: true });
+    }
+  });
 });
 
 function run(cwd, arguments_) {

@@ -21,6 +21,41 @@ export interface RetrievedChunk extends CorpusChunk {
 
 export const MAX_SELECTED_EXCERPT_CHARACTERS = 12_000;
 
+function truncateAtUtf16Boundary(content: string, limit: number): string {
+  let truncated = content.slice(0, limit);
+  const lastCodeUnit = truncated.charCodeAt(truncated.length - 1);
+  if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated;
+}
+
+export function fitExcerptChunks<T extends CorpusChunk>(chunks: T[]): T[] {
+  const selected = chunks.slice(0, 4);
+  let characters = selected.reduce(
+    (sum, chunk) => sum + chunk.content.length,
+    0,
+  );
+  while (selected.length > 1 && characters > MAX_SELECTED_EXCERPT_CHARACTERS) {
+    const removed = selected.pop();
+    if (removed !== undefined) characters -= removed.content.length;
+  }
+  const top = selected[0];
+  if (
+    top !== undefined &&
+    top.content.length > MAX_SELECTED_EXCERPT_CHARACTERS
+  ) {
+    selected[0] = {
+      ...top,
+      content: truncateAtUtf16Boundary(
+        top.content,
+        MAX_SELECTED_EXCERPT_CHARACTERS,
+      ),
+    };
+  }
+  return selected;
+}
+
 export type RetrievalResult =
   | {
       kind: 'answer';
@@ -53,6 +88,7 @@ export interface AssistantStreamInput {
 
 export interface AssistantStreamContext {
   requestId: string;
+  requestIp: string;
   userId: string;
 }
 

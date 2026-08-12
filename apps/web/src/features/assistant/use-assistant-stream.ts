@@ -30,6 +30,7 @@ type StreamStatus =
   | 'disabled';
 
 export type AssistantTurn = {
+  id: string;
   question: string;
   answer: string;
   sources: AssistantSource[];
@@ -170,11 +171,16 @@ export function useAssistantStream({
   const [requestActive, setRequestActive] = useState(false);
   const [lastQuestion, setLastQuestion] = useState<string | null>(null);
   const turnsRef = useRef(turns);
+  const nextTurnIdRef = useRef(0);
   const activeControllerRef = useRef<AbortController | null>(null);
   const abortReasonRef = useRef<AbortReason | undefined>(undefined);
+  const enabledRef = useRef(enabled);
+  const pendingAnswerRef = useRef<string | null>(null);
+  const answerFrameRef = useRef<number | null>(null);
   const mountedRef = useRef(false);
   const lifecycleObserverRef = useRef(lifecycleObserver);
   lifecycleObserverRef.current = lifecycleObserver;
+  enabledRef.current = enabled;
 
   const dispatchState = useCallback(
     (transition: StateTransition, update: () => void) => {
@@ -206,10 +212,46 @@ export function useAssistantStream({
     [dispatchState],
   );
 
+  const commitPendingAnswer = useCallback(() => {
+    const nextAnswer = pendingAnswerRef.current;
+    if (nextAnswer === null) return;
+    pendingAnswerRef.current = null;
+    dispatchState('request-delta', () => {
+      setAttempt((current) =>
+        current ? { ...current, answer: nextAnswer } : current,
+      );
+    });
+  }, [dispatchState]);
+
+  const flushPendingAnswer = useCallback(() => {
+    if (answerFrameRef.current !== null) {
+      window.cancelAnimationFrame(answerFrameRef.current);
+      answerFrameRef.current = null;
+    }
+    commitPendingAnswer();
+  }, [commitPendingAnswer]);
+
+  const scheduleAnswer = useCallback(
+    (nextAnswer: string) => {
+      pendingAnswerRef.current = nextAnswer;
+      if (answerFrameRef.current !== null) return;
+      answerFrameRef.current = window.requestAnimationFrame(() => {
+        answerFrameRef.current = null;
+        commitPendingAnswer();
+      });
+    },
+    [commitPendingAnswer],
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (answerFrameRef.current !== null) {
+        window.cancelAnimationFrame(answerFrameRef.current);
+        answerFrameRef.current = null;
+      }
+      pendingAnswerRef.current = null;
       abortActive('unmount');
     };
   }, [abortActive]);
@@ -226,6 +268,8 @@ export function useAssistantStream({
       setStatus('disabled');
       setLiveStatus('Assistant unavailable.');
       setError(null);
+      setAttempt(null);
+      setRequestActive(false);
     });
   }, [abortActive, dispatchState, enabled]);
 
@@ -248,6 +292,7 @@ export function useAssistantStream({
         !dispatchState('request-started', () => {
           activeControllerRef.current = controller;
           abortReasonRef.current = undefined;
+          pendingAnswerRef.current = null;
           setRequestActive(true);
           setLastQuestion(question);
           setAttempt({ question, answer: '', sources: [] });
@@ -297,11 +342,7 @@ export function useAssistantStream({
               throw new AssistantProtocolError();
             }
             answer += event.data.text;
-            dispatchState('request-delta', () => {
-              setAttempt((current) =>
-                current ? { ...current, answer } : current,
-              );
-            });
+            scheduleAnswer(answer);
           } else {
             terminal = event;
           }
@@ -344,9 +385,18 @@ export function useAssistantStream({
       }
 
       if (!completion) return true;
+      flushPendingAnswer();
       const settledCompletion = completion;
       dispatchState('request-settled', () => {
         setRequestActive(false);
+
+        if (!enabledRef.current) {
+          setAttempt(null);
+          setStatus('disabled');
+          setLiveStatus('Assistant unavailable.');
+          setError(null);
+          return;
+        }
 
         if (settledCompletion.kind === 'done') {
           const refused = settledCompletion.outcome === 'refused';
@@ -356,6 +406,7 @@ export function useAssistantStream({
           const nextTurns = boundTurns([
             ...turnsRef.current,
             {
+              id: String(nextTurnIdRef.current++),
               question,
               answer: completedAnswer,
               sources: settledCompletion.sources,
@@ -399,7 +450,15 @@ export function useAssistantStream({
       });
       return true;
     },
-    [abortActive, csrfToken, dispatchState, enabled, interactionLocked],
+    [
+      abortActive,
+      csrfToken,
+      dispatchState,
+      enabled,
+      flushPendingAnswer,
+      interactionLocked,
+      scheduleAnswer,
+    ],
   );
 
   return {

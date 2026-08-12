@@ -123,7 +123,7 @@ describe('AssistantChat', () => {
     await ask('How are sessions protected?');
     expect(screen.getByRole('status')).toHaveTextContent('Answer in progress');
 
-    await act(async () => {
+    act(() => {
       controller.enqueue(encoder.encode(sourceEvent));
     });
     expect(
@@ -132,7 +132,7 @@ describe('AssistantChat', () => {
     expect(screen.getByText('Session security')).toBeVisible();
     expect(screen.getByRole('status')).toHaveTextContent('Sources available');
 
-    await act(async () => {
+    act(() => {
       controller.enqueue(
         encoder.encode('event: delta\ndata: {"text":"Opaque sessions"}\n\n'),
       );
@@ -140,7 +140,7 @@ describe('AssistantChat', () => {
     expect(await screen.findByText('Opaque sessions')).toBeVisible();
     expect(screen.getByRole('status')).not.toHaveTextContent('Opaque sessions');
 
-    await act(async () => {
+    act(() => {
       controller.enqueue(
         encoder.encode('event: delta\ndata: {"text":" use cookies."}\n\n'),
       );
@@ -177,7 +177,7 @@ describe('AssistantChat', () => {
     await user.clear(textbox);
     await user.type(textbox, 'Drafted next question');
 
-    await act(async () => {
+    act(() => {
       controller.enqueue(encoder.encode(sourceEvent));
       controller.enqueue(
         encoder.encode('event: delta\ndata: {"text":"First answer"}\n\n'),
@@ -188,6 +188,30 @@ describe('AssistantChat', () => {
 
     expect(await screen.findByText('First answer')).toBeVisible();
     expect(textbox).toHaveValue('Drafted next question');
+    expect(textbox).toHaveFocus();
+  });
+
+  it('keeps the transcript bounded and focuses a completed answer when the composer is idle', async () => {
+    server.use(
+      http.post('/api/v1/assistant/chat', () =>
+        sseResponse(
+          sourceEvent +
+            'event: delta\ndata: {"text":"Focused answer"}\n\n' +
+            doneEvent,
+        ),
+      ),
+    );
+    renderChat();
+
+    expect(
+      await screen.findByRole('region', { name: 'Conversation transcript' }),
+    ).toBeVisible();
+    await ask('Focus question');
+
+    const answer = await screen.findByRole('article', {
+      name: 'Assistant answer to: Focus question',
+    });
+    await waitFor(() => expect(answer).toHaveFocus());
   });
 
   it('keeps retry disabled until stop cleanup settles, then retries successfully', async () => {
@@ -515,10 +539,11 @@ describe('AssistantChat', () => {
       ([, delay]) => delay === 30_000,
     );
     expect(deadlineIndex).toBeGreaterThanOrEqual(0);
-    const deadline = setTimeoutSpy.mock.results[deadlineIndex]?.value;
+    const deadline = setTimeoutSpy.mock.results[deadlineIndex]
+      ?.value as unknown;
     clearTimeoutSpy.mockClear();
 
-    await act(async () => {
+    act(() => {
       controller.enqueue(encoder.encode(sourceEvent));
       controller.enqueue(
         encoder.encode('event: delta\ndata: {"text":"Completed answer"}\n\n'),
@@ -526,8 +551,10 @@ describe('AssistantChat', () => {
       controller.enqueue(encoder.encode(doneEvent));
       controller.close();
     });
-    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
-    expect(clearTimeoutSpy).toHaveBeenCalledWith(deadline);
+    await waitFor(() => {
+      expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(deadline);
+    });
 
     expect(await screen.findByText('Completed answer')).toBeVisible();
     await waitFor(() =>
@@ -783,16 +810,18 @@ describe('AssistantChat', () => {
       'ASSISTANT_DISABLED',
       404,
       'The assistant is not enabled for this environment.',
+      0,
     ],
-    ['ASSISTANT_RATE_LIMITED', 429, 'The assistant is busy right now.'],
+    ['ASSISTANT_RATE_LIMITED', 429, 'The assistant is busy right now.', 1],
     [
       'SERVICE_UNAVAILABLE',
       503,
       'The assistant request could not be completed.',
+      0,
     ],
   ])(
     'maps %s pre-stream failures to a safe UI state',
-    async (code, status, copy) => {
+    async (code, status, copy, retryNotices) => {
       server.use(
         http.post('/api/v1/assistant/chat', () =>
           HttpResponse.json(
@@ -817,8 +846,9 @@ describe('AssistantChat', () => {
       expect(
         screen.queryByText('Do not display this title'),
       ).not.toBeInTheDocument();
-      if (status === 429)
-        expect(screen.getByText(/try again in 2s/i)).toBeVisible();
+      expect(screen.queryAllByText(/try again in 2s/i)).toHaveLength(
+        retryNotices,
+      );
     },
   );
 

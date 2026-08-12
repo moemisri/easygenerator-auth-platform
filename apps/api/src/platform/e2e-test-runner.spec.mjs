@@ -22,7 +22,8 @@ it('imports without process or Docker side effects', () => {
     },
   );
 
-  expect(result.status, result.stderr).toBe(0);
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
   expect(result.stdout).toBe('imported');
 });
 

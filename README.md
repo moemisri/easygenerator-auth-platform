@@ -78,12 +78,10 @@ MongoDB on `127.0.0.1:27018` with replica set `rs0`, Redis on
 | `GEMINI_API_KEY`, `GEMINI_MODEL`              | server-only provider settings                          | when assistant enabled          |
 | `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD` | one-time bootstrap input                               | bootstrap only                  |
 
-The Blueprint currently delegates both generated 256-bit secrets to Render. If
-the deployed Blueprint/UI cannot guarantee canonical base64, change both entries
-to `sync: false` before connecting it. The account holder must then enter a
-canonical base64 value representing at least 32 random bytes for each secret in
-Render's secure UI before the first deployment. Never place those values in the
-Blueprint, repository, terminal history, or CI.
+The Blueprint requires both security keys as secret dashboard inputs. The
+account holder must enter a canonical base64 value representing at least 32
+random bytes for each secret in Render's secure UI before the first deployment.
+Never place those values in the Blueprint, repository, terminal history, or CI.
 
 ## Commands and tests
 
@@ -152,8 +150,10 @@ that exact filtered command works in Render's secure shell without source or
    `build`, and `browser`.
 2. With account-holder approval, connect the public GitHub repository to the
    reviewed `render.yaml` Blueprint.
-3. Enter Atlas, Gemini, and model values only in Render's secure UI. The first
-   release uses a new empty Redis instance.
+3. Enter the Atlas URI and both security keys only in Render's secure UI. The
+   first release uses a new empty Redis instance. The assessment Blueprint
+   keeps the assistant disabled, so Gemini values are needed only if the
+   feature is enabled later.
 4. Run the smoke script against the assigned HTTPS origin, then perform the
    one-time admin bootstrap and manual release checklist.
 

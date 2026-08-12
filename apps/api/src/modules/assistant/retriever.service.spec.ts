@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AssistantCorpus, CorpusChunk } from './assistant.types';
+import type {
+  AssistantCorpus,
+  CorpusChunk,
+  RetrievalResult,
+} from './assistant.types';
 import {
   normalizeMeaningfulTerms,
   RetrieverService,
@@ -19,6 +23,15 @@ function corpus(chunks: CorpusChunk[]): AssistantCorpus {
   return { digest: 'corpus-digest', chunks };
 }
 
+function answer(
+  result: RetrievalResult,
+): Extract<RetrievalResult, { kind: 'answer' }> {
+  if (result.kind !== 'answer') {
+    throw new Error(`Expected an answer, received ${result.kind}`);
+  }
+  return result;
+}
+
 describe('normalizeMeaningfulTerms', () => {
   it('uses NFKC Unicode tokens, removes fixed stop words, and deduplicates first-seen terms', () => {
     expect(
@@ -31,18 +44,21 @@ describe('RetrieverService', () => {
   const retriever = new RetrieverService();
 
   it('accepts a one-term query only when the term is a heading token', () => {
-    const result = retriever.search(
-      corpus([
-        chunk('heading', 'Authentication', '# Authentication\nUses sessions.'),
-        chunk('body', 'Overview', '# Overview\nAuthentication is supported.'),
-      ]),
-      'authentication',
+    const result = answer(
+      retriever.search(
+        corpus([
+          chunk(
+            'heading',
+            'Authentication',
+            '# Authentication\nUses sessions.',
+          ),
+          chunk('body', 'Overview', '# Overview\nAuthentication is supported.'),
+        ]),
+        'authentication',
+      ),
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks.map(({ id }) => id)).toEqual(['heading', 'body']);
-    }
+    expect(result.chunks.map(({ id }) => id)).toEqual(['heading', 'body']);
   });
 
   it('refuses a one-term query found only in body text', () => {
@@ -61,17 +77,16 @@ describe('RetrieverService', () => {
   });
 
   it('accepts exactly 40 percent multi-term coverage', () => {
-    const result = retriever.search(
-      corpus([
-        chunk('eligible', 'Overview', '# Overview\nalpha beta documented.'),
-      ]),
-      'alpha beta gamma delta epsilon',
+    const result = answer(
+      retriever.search(
+        corpus([
+          chunk('eligible', 'Overview', '# Overview\nalpha beta documented.'),
+        ]),
+        'alpha beta gamma delta epsilon',
+      ),
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks[0]?.coverage).toBe(0.4);
-    }
+    expect(result.chunks[0]?.coverage).toBe(0.4);
   });
 
   it('refuses coverage below 40 percent', () => {
@@ -95,90 +110,85 @@ describe('RetrieverService', () => {
   });
 
   it('sorts ties by chunk ID and returns at most four chunks', () => {
-    const result = retriever.search(
-      corpus(
-        ['z', 'c', 'a', 'b', 'd'].map((id) =>
-          chunk(id, 'Guide', '# Guide\nsessions users'),
+    const result = answer(
+      retriever.search(
+        corpus(
+          ['z', 'c', 'a', 'b', 'd'].map((id) =>
+            chunk(id, 'Guide', '# Guide\nsessions users'),
+          ),
         ),
+        'sessions users',
       ),
-      'sessions users',
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks.map(({ id }) => id)).toEqual(['a', 'b', 'c', 'd']);
-    }
+    expect(result.chunks.map(({ id }) => id)).toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('ranks higher coverage before a lexically lower chunk ID', () => {
-    const result = retriever.search(
-      corpus([
-        chunk('a-lower-id', 'Guide', '# Guide\nalpha documented'),
-        chunk('z-higher-coverage', 'Guide', '# Guide\nalpha beta documented'),
-      ]),
-      'alpha beta',
+    const result = answer(
+      retriever.search(
+        corpus([
+          chunk('a-lower-id', 'Guide', '# Guide\nalpha documented'),
+          chunk('z-higher-coverage', 'Guide', '# Guide\nalpha beta documented'),
+        ]),
+        'alpha beta',
+      ),
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks.map(({ id }) => id)).toEqual([
-        'z-higher-coverage',
-        'a-lower-id',
-      ]);
-    }
+    expect(result.chunks.map(({ id }) => id)).toEqual([
+      'z-higher-coverage',
+      'a-lower-id',
+    ]);
   });
 
   it('ranks greater heading overlap before a lower ID at equal coverage', () => {
-    const result = retriever.search(
-      corpus([
-        chunk('a-lower-id', 'Guide', '# Guide\nalpha beta documented'),
-        chunk(
-          'z-heading-overlap',
-          'Alpha guide',
-          '# Alpha guide\nalpha beta documented',
-        ),
-      ]),
-      'alpha beta',
+    const result = answer(
+      retriever.search(
+        corpus([
+          chunk('a-lower-id', 'Guide', '# Guide\nalpha beta documented'),
+          chunk(
+            'z-heading-overlap',
+            'Alpha guide',
+            '# Alpha guide\nalpha beta documented',
+          ),
+        ]),
+        'alpha beta',
+      ),
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks.map(({ id }) => id)).toEqual([
-        'z-heading-overlap',
-        'a-lower-id',
-      ]);
-    }
+    expect(result.chunks.map(({ id }) => id)).toEqual([
+      'z-heading-overlap',
+      'a-lower-id',
+    ]);
   });
 
   it('uses locale-independent code-point order for chunk ID ties', () => {
-    const result = retriever.search(
-      corpus(
-        ['a', 'Z', '_'].map((id) =>
-          chunk(id, 'Guide', '# Guide\nsessions users'),
+    const result = answer(
+      retriever.search(
+        corpus(
+          ['a', 'Z', '_'].map((id) =>
+            chunk(id, 'Guide', '# Guide\nsessions users'),
+          ),
         ),
+        'sessions users',
       ),
-      'sessions users',
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks.map(({ id }) => id)).toEqual(['Z', '_', 'a']);
-    }
+    expect(result.chunks.map(({ id }) => id)).toEqual(['Z', '_', 'a']);
   });
 
   it('boosts an exact normalized heading before a higher-ID tie', () => {
-    const result = retriever.search(
-      corpus([
-        chunk('a', 'Guide', '# Guide\nsessions users'),
-        chunk('z', 'Sessions users', '# Sessions users\npublic details'),
-      ]),
-      'sessions users',
+    const result = answer(
+      retriever.search(
+        corpus([
+          chunk('a', 'Guide', '# Guide\nsessions users'),
+          chunk('z', 'Sessions users', '# Sessions users\npublic details'),
+        ]),
+        'sessions users',
+      ),
     );
 
-    expect(result.kind).toBe('answer');
-    if (result.kind === 'answer') {
-      expect(result.chunks.map(({ id }) => id)).toEqual(['z', 'a']);
-    }
+    expect(result.chunks.map(({ id }) => id)).toEqual(['z', 'a']);
   });
 
   it('refuses queries made only from stop words', () => {
@@ -194,14 +204,41 @@ describe('RetrieverService', () => {
     });
   });
 
-  it('rejects a selected excerpt set above the internal 12,000-character cap', () => {
-    expect(() =>
+  it('drops the lowest-ranked chunks until selected excerpts fit the budget', () => {
+    const sizedContent = (size: number) =>
+      `alpha beta ${'x'.repeat(size - 'alpha beta '.length)}`;
+    const result = answer(
       retriever.search(
         corpus([
-          chunk('a', 'Sessions', `# Sessions\nsessions ${'x'.repeat(12_000)}`),
+          chunk('a', 'Guide', sizedContent(6_000)),
+          chunk('b', 'Guide', sizedContent(5_000)),
+          chunk('c', 'Guide', sizedContent(2_000)),
+          chunk('d', 'Guide', sizedContent(500)),
         ]),
+        'alpha beta',
+      ),
+    );
+
+    expect(result.chunks.map(({ id }) => id)).toEqual(['a', 'b']);
+    expect(
+      result.chunks.reduce((sum, item) => sum + item.content.length, 0),
+    ).toBe(11_000);
+  });
+
+  it('safely truncates one oversized top-ranked chunk without splitting Unicode', () => {
+    const prefix = 'sessions ';
+    const oversized = `${prefix}${'x'.repeat(11_999 - prefix.length)}😀tail`;
+    const result = answer(
+      retriever.search(
+        corpus([chunk('top', 'Sessions', oversized)]),
         'sessions',
       ),
-    ).toThrow('ASSISTANT_CORPUS_UNAVAILABLE');
+    );
+
+    expect(result.chunks).toHaveLength(1);
+    expect(result.chunks[0]?.id).toBe('top');
+    expect(result.chunks[0]?.content.length).toBeLessThanOrEqual(12_000);
+    expect(result.chunks[0]?.content.isWellFormed()).toBe(true);
+    expect(result.chunks[0]?.content).not.toContain('😀');
   });
 });

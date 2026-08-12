@@ -103,7 +103,7 @@ function toOpenApiSchema(
   >;
   delete serialized.$schema;
   delete serialized['~standard'];
-  return serialized as SchemaObject;
+  return serialized;
 }
 
 function passwordRequestSchema(schema: ZodType): SchemaObject {

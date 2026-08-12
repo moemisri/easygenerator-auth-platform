@@ -53,7 +53,11 @@ export class AssistantController {
   ): Promise<void> {
     return this.assistant.chat(
       body,
-      { requestId: request.id, userId: principal.user.id },
+      {
+        requestId: request.id,
+        requestIp: request.ip,
+        userId: principal.user.id,
+      },
       request,
       response,
     );

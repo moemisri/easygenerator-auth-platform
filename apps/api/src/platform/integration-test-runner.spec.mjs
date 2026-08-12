@@ -22,11 +22,12 @@ it('imports without process or Docker side effects', () => {
     },
   );
 
-  expect(result.status, result.stderr).toBe(0);
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
   expect(result.stdout).toBe('imported');
 });
 
-for (const scenario of [
+it.each([
   {
     name: 'Vitest success survives cleanup failure',
     input: [0, true, 0, 17],
@@ -47,10 +48,6 @@ for (const scenario of [
     input: [0, false, 1, 17],
     expected: 17,
   },
-]) {
-  it(scenario.name, () => {
-    expect(selectIntegrationExitStatus(...scenario.input)).toBe(
-      scenario.expected,
-    );
-  });
-}
+])('$name', ({ input, expected }) => {
+  expect(selectIntegrationExitStatus(...input)).toBe(expected);
+});

@@ -26,14 +26,13 @@ describe('compiled API runtime', () => {
       '@easygenerator/contracts',
       'build',
     ]);
-    expect(
-      contractsBuild.status,
-      contractsBuild.stderr || contractsBuild.stdout,
-    ).toBe(0);
+    if (contractsBuild.status !== 0) {
+      throw new Error(contractsBuild.stderr || contractsBuild.stdout);
+    }
 
     const build = run('pnpm', ['--filter', '@easygenerator/api', 'build']);
 
-    expect(build.status, build.stderr || build.stdout).toBe(0);
+    if (build.status !== 0) throw new Error(build.stderr || build.stdout);
   }, 30_000);
 
   it.each(['apps/api/dist/main.js', 'apps/api/dist/cli/bootstrap-admin.js'])(
@@ -42,10 +41,11 @@ describe('compiled API runtime', () => {
       const imported = run(
         process.execPath,
         ['--input-type=module', '--eval', `await import('./${entrypoint}')`],
-        { ...process.env, VITEST: 'true' },
+        { ...process.env, APP_BOOTSTRAP: 'false' },
       );
 
-      expect(imported.status, imported.stderr || imported.stdout).toBe(0);
+      expect(imported.status).toBe(0);
+      expect(imported.stderr || imported.stdout).toBe('');
     },
   );
 

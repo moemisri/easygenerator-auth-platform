@@ -1,10 +1,13 @@
 import { Body, Controller, Get, Module, Post, Req } from '@nestjs/common';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { configureApplication, initializeAndListen } from './main';
+import { bootstrap, configureApplication, initializeAndListen } from './main';
 import { DatabaseIndexInitializer } from './platform/database/database-index-initializer';
 import { ProblemDetailsFilter } from './platform/errors/problem-details.filter';
 
@@ -64,11 +67,13 @@ describe('initializeAndListen', () => {
     };
     const app = {
       get: vi.fn(() => initializer),
-      init: vi.fn(async () => {
+      init: vi.fn(() => {
         order.push('app.init');
+        return Promise.resolve();
       }),
-      listen: vi.fn(async () => {
+      listen: vi.fn(() => {
         order.push('app.listen');
+        return Promise.resolve();
       }),
     };
 
@@ -101,6 +106,116 @@ describe('initializeAndListen', () => {
   });
 });
 
+describe('bootstrap', () => {
+  it('awaits application cleanup when startup fails after creation', async () => {
+    const startupFailure = new Error('security indexes unavailable');
+    const cleanupFinished = deferred();
+    let openHandle: ReturnType<typeof setInterval> | undefined;
+    const close = vi.fn(async () => {
+      await cleanupFinished.promise;
+      if (openHandle !== undefined) clearInterval(openHandle);
+      openHandle = undefined;
+    });
+    const config = {
+      get: vi.fn((key: string) => {
+        if (key === 'PORT') return 3000;
+        if (key === 'TRUST_PROXY_HOPS') return 0;
+        return false;
+      }),
+    };
+    const app = {
+      close,
+      enableShutdownHooks: vi.fn(),
+      get: vi.fn((token: { name?: string }) => {
+        if (token.name === 'ConfigService') return config;
+        if (token.name === 'DatabaseIndexInitializer') {
+          return {
+            ensureSecurityCriticalIndexes: vi
+              .fn()
+              .mockRejectedValue(startupFailure),
+          };
+        }
+        return {};
+      }),
+      init: vi.fn().mockResolvedValue(undefined),
+      listen: vi.fn().mockResolvedValue(undefined),
+      set: vi.fn(),
+      setGlobalPrefix: vi.fn(),
+      use: vi.fn(),
+      useBodyParser: vi.fn(),
+      useGlobalFilters: vi.fn(),
+      useGlobalPipes: vi.fn(),
+      useLogger: vi.fn(),
+    };
+    const createApplication = vi.fn(() => {
+      openHandle = setInterval(() => undefined, 1000);
+      return Promise.resolve(app as unknown as NestExpressApplication);
+    });
+
+    try {
+      const startup = bootstrap(createApplication);
+      let startupSettled = false;
+      const outcome = startup.then(
+        () => ({ status: 'resolved' as const }),
+        (error: unknown) => ({ error, status: 'rejected' as const }),
+      );
+      void outcome.then(() => {
+        startupSettled = true;
+      });
+
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+      expect(openHandle).toBeDefined();
+      expect(startupSettled).toBe(false);
+
+      cleanupFinished.resolve();
+
+      await expect(outcome).resolves.toEqual({
+        error: startupFailure,
+        status: 'rejected',
+      });
+      expect(openHandle).toBeUndefined();
+    } finally {
+      cleanupFinished.resolve();
+      if (openHandle !== undefined) clearInterval(openHandle);
+    }
+  });
+});
+
+describe('application entrypoint', () => {
+  const apiRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '..',
+  );
+
+  function runMain(appBootstrap: 'false' | 'true') {
+    return spawnSync(process.execPath, ['--import', 'tsx', 'src/main.ts'], {
+      cwd: apiRoot,
+      encoding: 'utf8',
+      env: {
+        APP_BOOTSTRAP: appBootstrap,
+        NODE_ENV: 'production',
+      },
+      shell: false,
+    });
+  }
+
+  it('uses APP_BOOTSTRAP=false as the explicit import-only switch', () => {
+    const result = runMain('false');
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('');
+  });
+
+  it('terminates nonzero with a sanitized startup diagnostic', () => {
+    const result = runMain('true');
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('Application startup failed.\n');
+  });
+});
+
 describe('configureApplication', () => {
   let app: NestExpressApplication;
 
@@ -129,14 +244,20 @@ describe('configureApplication', () => {
   });
 
   it('keeps health routes outside the versioned API prefix', async () => {
-    await request(app.getHttpServer()).get('/health/live').expect(200);
-    await request(app.getHttpServer()).get('/health/ready').expect(200);
-    await request(app.getHttpServer()).get('/api/v1/health/live').expect(404);
-    await request(app.getHttpServer()).get('/boundary').expect(404);
-    await request(app.getHttpServer()).get('/api/v1/boundary').expect(200);
+    const statuses: number[] = [];
+    for (const path of [
+      '/health/live',
+      '/health/ready',
+      '/api/v1/health/live',
+      '/boundary',
+      '/api/v1/boundary',
+    ]) {
+      statuses.push((await request(app.getHttpServer()).get(path)).status);
+    }
+    expect(statuses).toEqual([200, 200, 404, 404, 200]);
   });
 
-  it('uses a server-owned request ID, trusted proxy hops, cookies, and Helmet', async () => {
+  it('uses a validated request ID, trusted proxy hops, cookies, and Helmet', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/boundary')
       .set('Cookie', 'theme=dark')
@@ -144,17 +265,29 @@ describe('configureApplication', () => {
       .set('X-Request-Id', 'attacker-controlled')
       .expect(200);
 
-    expect(response.body).toMatchObject({
+    const body = response.body as BoundaryRequest;
+    expect(body).toMatchObject({
       cookies: { theme: 'dark' },
       ip: '203.0.113.9',
     });
-    expect(response.body.id).not.toBe('attacker-controlled');
-    expect(response.headers['x-request-id']).toBe(response.body.id);
+    expect(body.id).not.toBe('attacker-controlled');
+    expect(response.headers['x-request-id']).toBe(body.id);
     expect(response.headers['x-content-type-options']).toBe('nosniff');
     expect(response.headers['content-security-policy']).toContain(
       "default-src 'self'",
     );
     expect(response.headers).not.toHaveProperty('access-control-allow-origin');
+  });
+
+  it('propagates a valid edge request ID through the HTTP boundary', async () => {
+    const requestId = '123e4567-e89b-42d3-a456-426614174000';
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/boundary')
+      .set('X-Request-Id', requestId)
+      .expect(200);
+
+    expect((response.body as BoundaryRequest).id).toBe(requestId);
+    expect(response.headers['x-request-id']).toBe(requestId);
   });
 
   it('rejects JSON bodies larger than 32 KiB with a sanitized problem', async () => {

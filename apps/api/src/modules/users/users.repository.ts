@@ -100,7 +100,7 @@ export class UsersRepository {
     if (document === undefined) {
       throw new Error('User creation returned no document');
     }
-    return mapStoredUser(document.toObject() as UserRecord);
+    return mapStoredUser(document.toObject());
   }
 
   async findForAuthentication(
@@ -152,7 +152,7 @@ export class UsersRepository {
         .lean<SafeUserRecord[]>()
         .exec(),
       this.users.countDocuments(filter).exec(),
-      this.users.countDocuments({}).exec(),
+      this.users.estimatedDocumentCount().exec(),
       this.users.countDocuments({ status: 'ACTIVE' }).exec(),
     ]);
     return {
@@ -177,13 +177,6 @@ export class UsersRepository {
       .lean<SafeUserRecord>()
       .exec();
     return user === null ? null : mapStoredSafeUser(user);
-  }
-
-  async countActiveAdmins(dbSession: ClientSession): Promise<number> {
-    return this.users
-      .countDocuments({ role: 'ADMIN', status: 'ACTIVE' })
-      .session(dbSession)
-      .exec();
   }
 
   async bootstrapConflict(

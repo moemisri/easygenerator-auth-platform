@@ -109,6 +109,9 @@ function splitDocument(file: string, content: string): CorpusChunk[] {
 
 @Injectable()
 export class DocumentLoaderService {
+  private corpus: AssistantCorpus | undefined;
+  private loadInFlight: Promise<AssistantCorpus> | undefined;
+
   constructor(
     @Inject(ASSISTANT_CORPUS_ROOT) private readonly root: string,
     @Inject(ASSISTANT_CORPUS_FILE_SYSTEM)
@@ -116,6 +119,18 @@ export class DocumentLoaderService {
   ) {}
 
   async load(): Promise<AssistantCorpus> {
+    if (this.corpus !== undefined) return this.corpus;
+    const load = (this.loadInFlight ??= this.loadCorpus());
+    try {
+      const corpus = await load;
+      this.corpus = corpus;
+      return corpus;
+    } finally {
+      if (this.loadInFlight === load) this.loadInFlight = undefined;
+    }
+  }
+
+  private async loadCorpus(): Promise<AssistantCorpus> {
     try {
       const rootStat = await this.fileSystem.lstat(this.root);
       if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {

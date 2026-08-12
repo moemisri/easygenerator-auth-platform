@@ -99,7 +99,7 @@ export class AuthService {
     context: AuthenticationRequestContext,
   ): Promise<AuthenticationResult> {
     const normalizedIdentity = input.email.trim().toLowerCase();
-    const identityDigest = await this.enforceSigninLimits(
+    const signinKeys = await this.inspectSigninLimits(
       context.ip,
       normalizedIdentity,
     );
@@ -117,9 +117,10 @@ export class AuthService {
       !passwordValid ||
       authenticationUser.user.status !== 'ACTIVE'
     ) {
+      await this.consumeFailedSignin(signinKeys);
       await this.audit.record({
         action: 'AUTH_SIGNIN_FAILED',
-        identityDigest,
+        identityDigest: signinKeys.identityDigest,
         requestId: context.requestId,
       });
       throw new AppError('INVALID_CREDENTIALS', 401);
@@ -182,10 +183,14 @@ export class AuthService {
     }
   }
 
-  private async enforceSigninLimits(
+  private async inspectSigninLimits(
     ip: string,
     normalizedIdentity: string,
-  ): Promise<string> {
+  ): Promise<{
+    identityDigest: string;
+    identityKey: string;
+    ipKey: string;
+  }> {
     try {
       const ipDigest = this.privacyKeys.digest('auth:signin:ip', ip);
       const identityDigest = this.privacyKeys.digest(
@@ -193,15 +198,10 @@ export class AuthService {
         normalizedIdentity,
       );
       const decisions = await Promise.all([
-        this.rateLimiter.consume(
-          `auth:signin:ip:${ipDigest}`,
-          SIGNIN_IP_LIMIT,
-          SIGNIN_WINDOW_SECONDS,
-        ),
-        this.rateLimiter.consume(
+        this.rateLimiter.inspect(`auth:signin:ip:${ipDigest}`, SIGNIN_IP_LIMIT),
+        this.rateLimiter.inspect(
           `auth:signin:identity:${identityDigest}`,
           SIGNIN_IDENTITY_LIMIT,
-          SIGNIN_WINDOW_SECONDS,
         ),
       ]);
       const blocked = decisions.filter((decision) => !decision.allowed);
@@ -210,7 +210,40 @@ export class AuthService {
           Math.max(...blocked.map((decision) => decision.retryAfterSeconds)),
         );
       }
-      return identityDigest;
+      return {
+        identityDigest,
+        identityKey: `auth:signin:identity:${identityDigest}`,
+        ipKey: `auth:signin:ip:${ipDigest}`,
+      };
+    } catch (error) {
+      if (error instanceof RateLimitExceededError) throw error;
+      throw new AppError('AUTH_PROTECTION_UNAVAILABLE', 503);
+    }
+  }
+
+  private async consumeFailedSignin(keys: {
+    identityKey: string;
+    ipKey: string;
+  }): Promise<void> {
+    try {
+      const decisions = await this.rateLimiter.consumeMany([
+        {
+          key: keys.ipKey,
+          limit: SIGNIN_IP_LIMIT,
+          windowSeconds: SIGNIN_WINDOW_SECONDS,
+        },
+        {
+          key: keys.identityKey,
+          limit: SIGNIN_IDENTITY_LIMIT,
+          windowSeconds: SIGNIN_WINDOW_SECONDS,
+        },
+      ]);
+      const blocked = decisions.filter((decision) => !decision.allowed);
+      if (blocked.length > 0) {
+        throw new RateLimitExceededError(
+          Math.max(...blocked.map((decision) => decision.retryAfterSeconds)),
+        );
+      }
     } catch (error) {
       if (error instanceof RateLimitExceededError) throw error;
       throw new AppError('AUTH_PROTECTION_UNAVAILABLE', 503);

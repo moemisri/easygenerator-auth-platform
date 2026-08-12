@@ -266,10 +266,11 @@ describe('public OpenAPI document', () => {
           provide: HealthService,
           useValue: {
             live: () => ({ status: 'ok' }),
-            ready: async () => ({
-              status: 'ok',
-              dependencies: { mongodb: 'up', redis: 'up' },
-            }),
+            ready: () =>
+              Promise.resolve({
+                status: 'ok',
+                dependencies: { mongodb: 'up', redis: 'up' },
+              }),
           },
         },
       ],
@@ -399,10 +400,12 @@ describe('public OpenAPI document', () => {
             expect(example.value).toMatchObject({
               status: Number(status),
               title: titles[status],
-              type: expect.stringMatching(
-                /^https:\/\/easygenerator\.com\/problems\//,
-              ),
             });
+            const exampleType = (example.value as { type?: unknown }).type;
+            expect(typeof exampleType).toBe('string');
+            expect(exampleType).toMatch(
+              /^https:\/\/easygenerator\.com\/problems\//,
+            );
           }
         }
       }
@@ -552,12 +555,14 @@ describe('public OpenAPI document', () => {
     const assistant = document.components?.schemas
       ?.AssistantChatRequest as SchemaObject;
     const history = assistant.properties?.history;
-    expect(history).not.toHaveProperty('$ref');
+    if (history === undefined || '$ref' in history) {
+      throw new Error('Assistant history must be an inline schema');
+    }
     expect(history).toMatchObject({
       type: 'array',
       maxItems: 6,
-      description: expect.stringContaining('6,000'),
     });
+    expect(history.description).toContain('6,000');
   });
 
   it('documents readiness semantics and fetch-based SSE examples', async () => {
