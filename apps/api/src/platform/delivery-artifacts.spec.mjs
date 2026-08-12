@@ -117,7 +117,7 @@ describe('delivery policy artifacts', () => {
     expect(production.stdout).toContain('/packages/contracts/dist/index.js');
   });
 
-  it('deploys a ready-only production service that can boot without assistant credentials', () => {
+  it('deploys a ready-only production service that keeps every credential a secure dashboard input', () => {
     const blueprint = load(read('render.yaml'));
     const cache = blueprint.services.find(
       (service) => service.type === 'keyvalue',
@@ -131,7 +131,7 @@ describe('delivery policy artifacts', () => {
     );
     expect(env.ASSISTANT_ENABLED).toEqual({
       key: 'ASSISTANT_ENABLED',
-      value: 'false',
+      value: 'true',
     });
     expect(env.SWAGGER_ENABLED).toEqual({
       key: 'SWAGGER_ENABLED',
@@ -142,7 +142,10 @@ describe('delivery policy artifacts', () => {
       key: 'IDENTITY_HASH_SECRET',
       sync: false,
     });
-    expect(env.GEMINI_API_KEY).toBeUndefined();
-    expect(env.GEMINI_MODEL).toBeUndefined();
+    // The assistant is enabled, so the schema requires both provider fields.
+    // The key stays a secure dashboard input; only the non-secret model is literal.
+    expect(env.GEMINI_API_KEY).toEqual({ key: 'GEMINI_API_KEY', sync: false });
+    expect(env.GEMINI_MODEL.value).toMatch(/^gemini-[\w.-]+$/);
+    expect(env.GEMINI_MODEL.sync).toBeUndefined();
   });
 });

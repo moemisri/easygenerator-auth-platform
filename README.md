@@ -154,10 +154,12 @@ that exact filtered command works in Render's secure shell without source or
    `build`, and `browser`.
 2. With account-holder approval, connect the public GitHub repository to the
    reviewed `render.yaml` Blueprint.
-3. Enter the Atlas URI and both security keys only in Render's secure UI. The
-   first release uses a new empty Redis instance. The assessment Blueprint
-   keeps the assistant disabled, so Gemini values are needed only if the
-   feature is enabled later.
+3. Enter the Atlas URI, both security keys, and `GEMINI_API_KEY` only in
+   Render's secure UI. The first release uses a new empty Redis instance. The
+   Blueprint enables the assistant, so the API key is required: startup
+   validation fails closed if `ASSISTANT_ENABLED` is true and either
+   `GEMINI_API_KEY` or `GEMINI_MODEL` is missing. Set `ASSISTANT_ENABLED` to
+   `false` in `render.yaml` to deploy without a Gemini account.
 4. Run the smoke script against the assigned HTTPS origin, then perform the
    one-time admin bootstrap and manual release checklist.
 
