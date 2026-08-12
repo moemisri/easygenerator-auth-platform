@@ -7,11 +7,11 @@ import { NestFactory } from '@nestjs/core';
 import { getConnectionToken } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 
-import { AppModule } from '../app.module';
-import { AdminRepository } from '../modules/admin/admin.repository';
-import { AuditService } from '../modules/audit/audit.service';
-import { PasswordService } from '../modules/auth/password.service';
-import { UsersService } from '../modules/users/users.service';
+import { AppModule } from '../app.module.js';
+import { AdminRepository } from '../modules/admin/admin.repository.js';
+import { AuditService } from '../modules/audit/audit.service.js';
+import { PasswordService } from '../modules/auth/password.service.js';
+import { UsersService } from '../modules/users/users.service.js';
 
 interface BootstrapEnvironment {
   ADMIN_EMAIL?: unknown;

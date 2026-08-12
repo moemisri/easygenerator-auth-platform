@@ -2,15 +2,15 @@ import { randomBytes } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type Redis from 'ioredis';
+import type { Redis } from 'ioredis';
 
-import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
-import { REDIS } from '../../platform/redis/redis.constants';
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service.js';
+import { REDIS } from '../../platform/redis/redis.constants.js';
 import {
   assistantProtectionUnavailable,
   AssistantStreamInProgressError,
-} from './assistant.errors';
-import { assistantRedisNamespace } from './assistant-redis';
+} from './assistant.errors.js';
+import { assistantRedisNamespace } from './assistant-redis.js';
 
 const LEASE_SECONDS = 35;
 const compareAndDeleteScript = `

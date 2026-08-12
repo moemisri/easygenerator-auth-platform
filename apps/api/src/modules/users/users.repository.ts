@@ -7,7 +7,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { ClientSession, Model, QueryFilter, SortOrder } from 'mongoose';
 
-import { User } from './schemas/user.schema';
+import { User } from './schemas/user.schema.js';
 
 export interface NewUser {
   email: string;

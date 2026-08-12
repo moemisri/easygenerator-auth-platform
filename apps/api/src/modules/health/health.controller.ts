@@ -1,8 +1,8 @@
 import { Controller, Get, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
-import { HealthService } from './health.service';
-import { ApiHealthLive, ApiHealthReady } from '../../platform/http/openapi';
+import { HealthService } from './health.service.js';
+import { ApiHealthLive, ApiHealthReady } from '../../platform/http/openapi.js';
 
 type StatusResponse = {
   status(code: number): unknown;

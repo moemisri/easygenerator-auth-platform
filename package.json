@@ -9,6 +9,7 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "dev": "pnpm --parallel --filter @easygenerator/api --filter @easygenerator/web dev",
+    "env:local": "node scripts/prepare-local-env.mjs",
     "e2e": "node scripts/run-e2e.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

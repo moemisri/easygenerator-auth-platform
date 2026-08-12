@@ -2,10 +2,10 @@ import { Controller, Get, Header, UseGuards } from '@nestjs/common';
 import type { SafeUser } from '@easygenerator/contracts';
 import { ApiTags } from '@nestjs/swagger';
 
-import { CurrentPrincipal } from '../auth/current-principal.decorator';
-import { SessionGuard } from '../auth/session.guard';
-import type { AuthenticatedPrincipal } from '../auth/session.service';
-import { ApiUsersMe } from '../../platform/http/openapi';
+import { CurrentPrincipal } from '../auth/current-principal.decorator.js';
+import { SessionGuard } from '../auth/session.guard.js';
+import type { AuthenticatedPrincipal } from '../auth/session.service.js';
+import { ApiUsersMe } from '../../platform/http/openapi.js';
 
 @Controller('users')
 @ApiTags('Users')

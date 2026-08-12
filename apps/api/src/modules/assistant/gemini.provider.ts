@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import type {
   AssistantProvider,
   AssistantProviderInput,
-} from './assistant.types';
+} from './assistant.types.js';
 
 export const GOOGLE_GENAI_FACTORY = Symbol('GOOGLE_GENAI_FACTORY');
 

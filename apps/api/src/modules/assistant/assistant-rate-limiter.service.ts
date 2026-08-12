@@ -1,14 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type Redis from 'ioredis';
+import type { Redis } from 'ioredis';
 
-import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
-import { REDIS } from '../../platform/redis/redis.constants';
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service.js';
+import { REDIS } from '../../platform/redis/redis.constants.js';
 import {
   AssistantRateLimitError,
   assistantProtectionUnavailable,
-} from './assistant.errors';
-import { assistantRedisNamespace } from './assistant-redis';
+} from './assistant.errors.js';
+import { assistantRedisNamespace } from './assistant-redis.js';
 
 const ASSISTANT_RATE_LIMIT = 10;
 const ASSISTANT_RATE_WINDOW_SECONDS = 60;

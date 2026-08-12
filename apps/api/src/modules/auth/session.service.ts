@@ -4,8 +4,8 @@ import type { SafeUser } from '@easygenerator/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import type { ClientSession } from 'mongoose';
 
-import { UsersService } from '../users/users.service';
-import { SessionRepository } from './session.repository';
+import { UsersService } from '../users/users.service.js';
+import { SessionRepository } from './session.repository.js';
 
 const SESSION_TOKEN_BYTES = 32;
 const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1_000;

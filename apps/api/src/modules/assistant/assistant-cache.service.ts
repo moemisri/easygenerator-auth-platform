@@ -2,17 +2,17 @@ import { createHmac } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type Redis from 'ioredis';
+import type { Redis } from 'ioredis';
 
-import { IDENTITY_HASH_SECRET } from '../auth/auth.constants';
-import { REDIS } from '../../platform/redis/redis.constants';
+import { IDENTITY_HASH_SECRET } from '../auth/auth.constants.js';
+import { REDIS } from '../../platform/redis/redis.constants.js';
 import type {
   AssistantCorpus,
   CorpusChunk,
   RetrievedChunk,
-} from './assistant.types';
-import { assistantProtectionUnavailable } from './assistant.errors';
-import { assistantRedisNamespace } from './assistant-redis';
+} from './assistant.types.js';
+import { assistantProtectionUnavailable } from './assistant.errors.js';
+import { assistantRedisNamespace } from './assistant-redis.js';
 
 const CACHE_TTL_SECONDS = 60 * 60;
 const queryDomain = 'assistant-retrieval-query-v1\0';

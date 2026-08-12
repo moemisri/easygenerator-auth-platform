@@ -13,8 +13,8 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { requestPath } from '../http/request-path';
-import { AppError } from './app-error';
+import { requestPath } from '../http/request-path.js';
+import { AppError } from './app-error.js';
 
 const problemTypeBase = 'https://easygenerator.com/problems';
 export const PROBLEM_LOGGER = Symbol('PROBLEM_LOGGER');

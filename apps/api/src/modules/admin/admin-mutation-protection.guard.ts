@@ -4,14 +4,14 @@ import {
   Injectable,
 } from '@nestjs/common';
 
-import { AppError } from '../../platform/errors/app-error';
-import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
-import { RateLimitExceededError } from '../../platform/redis/rate-limit-exceeded.error';
+import { AppError } from '../../platform/errors/app-error.js';
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service.js';
+import { RateLimitExceededError } from '../../platform/redis/rate-limit-exceeded.error.js';
 import {
   type RateLimitDecision,
   RateLimiterService,
-} from '../../platform/redis/rate-limiter.service';
-import type { AuthenticatedHttpRequest } from '../auth/session.guard';
+} from '../../platform/redis/rate-limiter.service.js';
+import type { AuthenticatedHttpRequest } from '../auth/session.guard.js';
 
 const ADMIN_MUTATION_LIMIT = 20;
 const ADMIN_MUTATION_WINDOW_SECONDS = 60;

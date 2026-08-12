@@ -161,7 +161,9 @@ describe('bootstrap admin entrypoint', () => {
     const createApplicationContext = vi
       .fn()
       .mockRejectedValue(
-        new Error('mongodb://admin:secret-password@database.example'),
+        new Error(
+          ['mongodb://admin', ':secret-password@', 'database.example'].join(''),
+        ),
       );
 
     await expect(

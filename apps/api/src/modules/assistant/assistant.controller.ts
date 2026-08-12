@@ -14,19 +14,19 @@ import {
 } from '@easygenerator/contracts';
 import { ApiTags } from '@nestjs/swagger';
 
-import { CsrfGuard } from '../auth/csrf.guard';
-import { CurrentPrincipal } from '../auth/current-principal.decorator';
+import { CsrfGuard } from '../auth/csrf.guard.js';
+import { CurrentPrincipal } from '../auth/current-principal.decorator.js';
 import {
   SessionGuard,
   type AuthenticatedHttpRequest,
-} from '../auth/session.guard';
-import type { AuthenticatedPrincipal } from '../auth/session.service';
-import { AssistantService } from './assistant.service';
+} from '../auth/session.guard.js';
+import type { AuthenticatedPrincipal } from '../auth/session.service.js';
+import { AssistantService } from './assistant.service.js';
 import type {
   AssistantRequestEvents,
   AssistantStreamResponse,
-} from './assistant.types';
-import { ApiAssistantChat } from '../../platform/http/openapi';
+} from './assistant.types.js';
+import { ApiAssistantChat } from '../../platform/http/openapi.js';
 
 class AssistantChatBody implements AssistantChatRequest {
   static readonly schema = assistantChatRequestSchema;

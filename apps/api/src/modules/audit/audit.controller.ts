@@ -6,11 +6,11 @@ import {
 } from '@easygenerator/contracts';
 import { ApiTags } from '@nestjs/swagger';
 
-import { CapabilityGuard } from '../admin/capability.guard';
-import { RequireCapability } from '../admin/capability.decorator';
-import { SessionGuard } from '../auth/session.guard';
-import { AuditService } from './audit.service';
-import { ApiAdminAuditEvents } from '../../platform/http/openapi';
+import { CapabilityGuard } from '../admin/capability.guard.js';
+import { RequireCapability } from '../admin/capability.decorator.js';
+import { SessionGuard } from '../auth/session.guard.js';
+import { AuditService } from './audit.service.js';
+import { ApiAdminAuditEvents } from '../../platform/http/openapi.js';
 
 class AdminAuditEventsQueryDto implements AdminAuditEventsQuery {
   static readonly schema = adminAuditEventsQuerySchema;

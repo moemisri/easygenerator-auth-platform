@@ -4,31 +4,31 @@ import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 
-import { AuditModule } from '../audit/audit.module';
-import { UsersModule } from '../users/users.module';
-import { RedisModule } from '../../platform/redis/redis.module';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { DUMMY_PASSWORD_HASH } from './auth.constants';
-import { CookieService } from './cookie.service';
-import { CsrfGuard } from './csrf.guard';
+import { AuditModule } from '../audit/audit.module.js';
+import { UsersModule } from '../users/users.module.js';
+import { RedisModule } from '../../platform/redis/redis.module.js';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { DUMMY_PASSWORD_HASH } from './auth.constants.js';
+import { CookieService } from './cookie.service.js';
+import { CsrfGuard } from './csrf.guard.js';
 import {
   CSRF_DIGEST_COMPARATOR,
   CSRF_SECRET,
   CsrfService,
   type DigestComparator,
-} from './csrf.service';
-import { PasswordService } from './password.service';
-import { Session, SessionSchema } from './schemas/session.schema';
-import { SessionRepository } from './session.repository';
+} from './csrf.service.js';
+import { PasswordService } from './password.service.js';
+import { Session, SessionSchema } from './schemas/session.schema.js';
+import { SessionRepository } from './session.repository.js';
 import {
   AUTH_CLOCK,
   cryptographicRandomSource,
   SESSION_RANDOM_SOURCE,
   SessionService,
   systemClock,
-} from './session.service';
-import { SessionGuard } from './session.guard';
+} from './session.service.js';
+import { SessionGuard } from './session.guard.js';
 
 const constantTimeDigestComparator: DigestComparator = (left, right) =>
   timingSafeEqual(left, right);

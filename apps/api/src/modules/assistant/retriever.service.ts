@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
-import { AppError } from '../../platform/errors/app-error';
+import { AppError } from '../../platform/errors/app-error.js';
 import type {
   AssistantCorpus,
   CorpusChunk,
   RetrievalResult,
   RetrievedChunk,
-} from './assistant.types';
-import { MAX_SELECTED_EXCERPT_CHARACTERS } from './assistant.types';
+} from './assistant.types.js';
+import { MAX_SELECTED_EXCERPT_CHARACTERS } from './assistant.types.js';
 
 export const ASSISTANT_STOP_WORDS = new Set([
   'a',

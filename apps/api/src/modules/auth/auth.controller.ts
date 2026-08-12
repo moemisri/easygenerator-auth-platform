@@ -20,20 +20,20 @@ import {
   type SignupInput,
 } from '@easygenerator/contracts';
 
-import { AuthService } from './auth.service';
-import { CookieService, type CookieResponse } from './cookie.service';
-import { CsrfGuard } from './csrf.guard';
-import { CsrfService } from './csrf.service';
-import { CurrentPrincipal } from './current-principal.decorator';
-import type { AuthenticatedHttpRequest } from './session.guard';
-import { SessionGuard } from './session.guard';
-import type { AuthenticatedPrincipal } from './session.service';
+import { AuthService } from './auth.service.js';
+import { CookieService, type CookieResponse } from './cookie.service.js';
+import { CsrfGuard } from './csrf.guard.js';
+import { CsrfService } from './csrf.service.js';
+import { CurrentPrincipal } from './current-principal.decorator.js';
+import type { AuthenticatedHttpRequest } from './session.guard.js';
+import { SessionGuard } from './session.guard.js';
+import type { AuthenticatedPrincipal } from './session.service.js';
 import {
   ApiAuthLogout,
   ApiAuthSession,
   ApiAuthSignin,
   ApiAuthSignup,
-} from '../../platform/http/openapi';
+} from '../../platform/http/openapi.js';
 
 class SignupBody implements SignupInput {
   static readonly schema = signupSchema;

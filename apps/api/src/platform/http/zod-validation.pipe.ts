@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import type { ZodType } from 'zod';
 
-import { AppError } from '../errors/app-error';
+import { AppError } from '../errors/app-error.js';
 
 @Injectable()
 export class ZodValidationPipe implements PipeTransform {

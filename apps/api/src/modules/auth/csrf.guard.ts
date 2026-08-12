@@ -5,10 +5,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { AppError } from '../../platform/errors/app-error';
-import { CookieService } from './cookie.service';
-import { CsrfService } from './csrf.service';
-import type { AuthenticatedHttpRequest } from './session.guard';
+import { AppError } from '../../platform/errors/app-error.js';
+import { CookieService } from './cookie.service.js';
+import { CsrfService } from './csrf.service.js';
+import type { AuthenticatedHttpRequest } from './session.guard.js';
 
 const compatibleFetchModes = new Set(['cors', 'same-origin']);
 

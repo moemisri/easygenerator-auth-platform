@@ -4,9 +4,12 @@ import {
   Injectable,
 } from '@nestjs/common';
 
-import { AppError } from '../../platform/errors/app-error';
-import { CookieService } from './cookie.service';
-import { type AuthenticatedPrincipal, SessionService } from './session.service';
+import { AppError } from '../../platform/errors/app-error.js';
+import { CookieService } from './cookie.service.js';
+import {
+  type AuthenticatedPrincipal,
+  SessionService,
+} from './session.service.js';
 
 export interface AuthenticatedHttpRequest {
   cookies?: Record<string, string | undefined>;

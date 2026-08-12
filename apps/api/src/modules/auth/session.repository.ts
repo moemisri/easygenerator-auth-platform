@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { ClientSession, Model } from 'mongoose';
 
-import { Session } from './schemas/session.schema';
+import { Session } from './schemas/session.schema.js';
 
 export interface NewSession {
   userId: string;

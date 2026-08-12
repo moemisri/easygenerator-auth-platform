@@ -3,15 +3,15 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PinoLogger } from 'nestjs-pino';
 
-import { AppError } from '../../platform/errors/app-error';
-import { AuditService } from '../audit/audit.service';
-import { AssistantCacheService } from './assistant-cache.service';
+import { AppError } from '../../platform/errors/app-error.js';
+import { AuditService } from '../audit/audit.service.js';
+import { AssistantCacheService } from './assistant-cache.service.js';
 import {
   AssistantConcurrencyService,
   type AssistantLease,
-} from './assistant-concurrency.service';
-import { AssistantRateLimitError } from './assistant.errors';
-import { AssistantRateLimiterService } from './assistant-rate-limiter.service';
+} from './assistant-concurrency.service.js';
+import { AssistantRateLimitError } from './assistant.errors.js';
+import { AssistantRateLimiterService } from './assistant-rate-limiter.service.js';
 import {
   ASSISTANT_PROVIDER,
   sourceForChunk,
@@ -23,13 +23,13 @@ import {
   type CorpusChunk,
   MAX_SELECTED_EXCERPT_CHARACTERS,
   type RetrievalResult,
-} from './assistant.types';
-import { DocumentLoaderService } from './document-loader.service';
+} from './assistant.types.js';
+import { DocumentLoaderService } from './document-loader.service.js';
 import {
   normalizeMeaningfulTerms,
   RetrieverService,
-} from './retriever.service';
-import { encodeSse } from './sse-writer';
+} from './retriever.service.js';
+import { encodeSse } from './sse-writer.js';
 
 export const ASSISTANT_DEADLINE_MILLISECONDS = Symbol(
   'ASSISTANT_DEADLINE_MILLISECONDS',

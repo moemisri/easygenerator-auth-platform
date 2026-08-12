@@ -1,0 +1,72 @@
+name: easygenerator-auth-local
+
+services:
+  mongo:
+    image: mongo:8
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test:
+        ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mongo-init:
+    image: mongo:8
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ['mongosh']
+    command:
+      - mongodb://mongo:27017/admin
+      - --quiet
+      - --eval
+      - >-
+        try { rs.status(); } catch (error) {
+          if (error.codeName !== 'NotYetInitialized') { throw error; }
+          rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]});
+        }
+        let attempts = 0;
+        while (!db.hello().isWritablePrimary && attempts < 120) { sleep(250); attempts += 1; }
+        if (!db.hello().isWritablePrimary) { throw new Error('MongoDB replica set did not become primary'); }
+    restart: 'no'
+
+  redis:
+    image: redis:8-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.local
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/easygenerator_auth?replicaSet=rs0
+      DB_NAME: easygenerator_auth
+      REDIS_URL: redis://redis:6379
+      APP_ORIGIN: https://localhost:3000
+      COOKIE_SECURE: 'true'
+      TRUST_PROXY_HOPS: 0
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:3000:3000'
+
+volumes:
+  mongo-data:
+  redis-data:

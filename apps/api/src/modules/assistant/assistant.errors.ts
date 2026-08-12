@@ -1,4 +1,4 @@
-import { AppError } from '../../platform/errors/app-error';
+import { AppError } from '../../platform/errors/app-error.js';
 
 export function assistantProtectionUnavailable(): AppError {
   return new AppError('ASSISTANT_PROTECTION_UNAVAILABLE', 503);

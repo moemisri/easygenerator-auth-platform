@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type Redis from 'ioredis';
+import type { Redis } from 'ioredis';
 
-import { REDIS } from './redis.constants';
+import { REDIS } from './redis.constants.js';
 
 const consumeFixedWindowScript = `
 local count = redis.call('INCR', KEYS[1])

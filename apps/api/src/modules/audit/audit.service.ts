@@ -16,7 +16,7 @@ import {
   AuditEvent,
   auditActions,
   type AuditAction,
-} from './schemas/audit-event.schema';
+} from './schemas/audit-event.schema.js';
 
 export type AuditInput =
   | {

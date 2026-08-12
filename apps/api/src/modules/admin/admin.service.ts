@@ -10,12 +10,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import type { ClientSession, Connection } from 'mongoose';
 
-import { AppError } from '../../platform/errors/app-error';
-import { AuditService } from '../audit/audit.service';
-import { SessionService } from '../auth/session.service';
-import { UsersService } from '../users/users.service';
-import { AdminRepository } from './admin.repository';
-import { canUpdateUser, removesActiveAdmin } from './authorization.policy';
+import { AppError } from '../../platform/errors/app-error.js';
+import { AuditService } from '../audit/audit.service.js';
+import { SessionService } from '../auth/session.service.js';
+import { UsersService } from '../users/users.service.js';
+import { AdminRepository } from './admin.repository.js';
+import { canUpdateUser, removesActiveAdmin } from './authorization.policy.js';
 
 const MAX_TRANSACTION_ATTEMPTS = 3;
 const MIN_RETRY_DELAY_MS = 5;

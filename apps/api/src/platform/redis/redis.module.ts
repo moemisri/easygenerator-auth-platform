@@ -1,10 +1,10 @@
 import { Injectable, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
-import { REDIS } from './redis.constants';
-import { PrivacyKeyDigestService } from './privacy-key-digest.service';
-import { RateLimiterService } from './rate-limiter.service';
+import { REDIS } from './redis.constants.js';
+import { PrivacyKeyDigestService } from './privacy-key-digest.service.js';
+import { RateLimiterService } from './rate-limiter.service.js';
 
 @Injectable()
 class RedisShutdown implements OnApplicationShutdown {

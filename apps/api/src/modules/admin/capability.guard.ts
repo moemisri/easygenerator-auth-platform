@@ -5,10 +5,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import { AppError } from '../../platform/errors/app-error';
-import type { AuthenticatedHttpRequest } from '../auth/session.guard';
-import { can, type Capability } from './authorization.policy';
-import { REQUIRED_CAPABILITY } from './capability.decorator';
+import { AppError } from '../../platform/errors/app-error.js';
+import type { AuthenticatedHttpRequest } from '../auth/session.guard.js';
+import { can, type Capability } from './authorization.policy.js';
+import { REQUIRED_CAPABILITY } from './capability.decorator.js';
 
 @Injectable()
 export class CapabilityGuard implements CanActivate {

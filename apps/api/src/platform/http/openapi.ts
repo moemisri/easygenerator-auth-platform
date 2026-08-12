@@ -29,8 +29,8 @@ import {
 } from '@nestjs/swagger';
 import { z, type ZodType } from 'zod';
 
-import { AppError } from '../errors/app-error';
-import { mapProblem } from '../errors/problem-details.filter';
+import { AppError } from '../errors/app-error.js';
+import { mapProblem } from '../errors/problem-details.filter.js';
 
 type ComponentsObject = NonNullable<OpenAPIObject['components']>;
 type SchemaOrReference = NonNullable<ComponentsObject['schemas']>[string];

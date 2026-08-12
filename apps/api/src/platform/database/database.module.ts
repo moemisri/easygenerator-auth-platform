@@ -3,7 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 
-import { DatabaseIndexInitializer } from './database-index-initializer';
+import { DatabaseIndexInitializer } from './database-index-initializer.js';
 
 export const DATABASE_HEALTH = Symbol('DATABASE_HEALTH');
 

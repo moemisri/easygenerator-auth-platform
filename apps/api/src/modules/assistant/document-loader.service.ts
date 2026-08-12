@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { Inject, Injectable } from '@nestjs/common';
 
-import { AppError } from '../../platform/errors/app-error';
-import type { AssistantCorpus, CorpusChunk } from './assistant.types';
+import { AppError } from '../../platform/errors/app-error.js';
+import type { AssistantCorpus, CorpusChunk } from './assistant.types.js';
 
 export const ASSISTANT_CORPUS_ROOT = Symbol('ASSISTANT_CORPUS_ROOT');
 export const ASSISTANT_CORPUS_FILE_SYSTEM = Symbol(

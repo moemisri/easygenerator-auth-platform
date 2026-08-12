@@ -8,13 +8,13 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
-import { AppModule } from './app.module';
-import type { AppConfig } from './platform/config/config.schema';
-import { DatabaseIndexInitializer } from './platform/database/database-index-initializer';
-import { ProblemDetailsFilter } from './platform/errors/problem-details.filter';
-import { configureOpenApi } from './platform/http/openapi';
-import { RequestIdMiddleware } from './platform/http/request-id.middleware';
-import { ZodValidationPipe } from './platform/http/zod-validation.pipe';
+import { AppModule } from './app.module.js';
+import type { AppConfig } from './platform/config/config.schema.js';
+import { DatabaseIndexInitializer } from './platform/database/database-index-initializer.js';
+import { ProblemDetailsFilter } from './platform/errors/problem-details.filter.js';
+import { configureOpenApi } from './platform/http/openapi.js';
+import { RequestIdMiddleware } from './platform/http/request-id.middleware.js';
+import { ZodValidationPipe } from './platform/http/zod-validation.pipe.js';
 
 type HelmetMiddleware = ReturnType<typeof helmet>;
 type HelmetRequest = Parameters<HelmetMiddleware>[0] & { path: string };
@@ -90,7 +90,7 @@ interface StartupApplication {
     token: typeof DatabaseIndexInitializer,
   ): Pick<DatabaseIndexInitializer, 'ensureSecurityCriticalIndexes'>;
   init(): Promise<unknown>;
-  listen(port: number): Promise<unknown>;
+  listen(port: number, hostname: string): Promise<unknown>;
 }
 
 export async function initializeAndListen(
@@ -99,7 +99,7 @@ export async function initializeAndListen(
 ): Promise<void> {
   await app.init();
   await app.get(DatabaseIndexInitializer).ensureSecurityCriticalIndexes();
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 }
 
 async function bootstrap() {

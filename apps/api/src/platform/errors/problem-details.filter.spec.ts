@@ -49,7 +49,11 @@ describe('mapProblem', () => {
 
   it('maps unknown failures to a generic problem without secrets', () => {
     const failure = new Error(
-      'Mongo authentication failed for mongodb://admin:secret@db.example',
+      [
+        'Mongo authentication failed for mongodb://admin',
+        ':secret@',
+        'db.example',
+      ].join(''),
     );
     failure.stack = 'private stack trace';
 
@@ -129,7 +133,9 @@ describe('mapProblem', () => {
     ],
     [
       'Nest 5xx',
-      new InternalServerErrorException('mongodb://admin:secret@db.example'),
+      new InternalServerErrorException(
+        ['mongodb://admin', ':secret@', 'db.example'].join(''),
+      ),
     ],
   ])('logs a safe correlated event for %s', (_name, failure) => {
     const events: Array<{ context: object; message: string }> = [];

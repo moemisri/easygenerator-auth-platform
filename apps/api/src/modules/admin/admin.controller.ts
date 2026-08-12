@@ -21,19 +21,19 @@ import {
 } from '@easygenerator/contracts';
 import { ApiTags } from '@nestjs/swagger';
 
-import { CurrentPrincipal } from '../auth/current-principal.decorator';
-import { CsrfGuard } from '../auth/csrf.guard';
-import type { AuthenticatedHttpRequest } from '../auth/session.guard';
-import { SessionGuard } from '../auth/session.guard';
-import type { AuthenticatedPrincipal } from '../auth/session.service';
-import { AdminMutationProtectionGuard } from './admin-mutation-protection.guard';
-import { AdminService } from './admin.service';
-import { RequireCapability } from './capability.decorator';
-import { CapabilityGuard } from './capability.guard';
+import { CurrentPrincipal } from '../auth/current-principal.decorator.js';
+import { CsrfGuard } from '../auth/csrf.guard.js';
+import type { AuthenticatedHttpRequest } from '../auth/session.guard.js';
+import { SessionGuard } from '../auth/session.guard.js';
+import type { AuthenticatedPrincipal } from '../auth/session.service.js';
+import { AdminMutationProtectionGuard } from './admin-mutation-protection.guard.js';
+import { AdminService } from './admin.service.js';
+import { RequireCapability } from './capability.decorator.js';
+import { CapabilityGuard } from './capability.guard.js';
 import {
   ApiAdminListUsers,
   ApiAdminUpdateUser,
-} from '../../platform/http/openapi';
+} from '../../platform/http/openapi.js';
 
 class AdminUsersQueryDto implements AdminUsersQuery {
   static readonly schema = adminUsersQuerySchema;

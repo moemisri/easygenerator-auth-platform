@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { configSchema } from './config.schema';
@@ -19,6 +24,72 @@ const productionConfig = {
 } as const;
 
 describe('configSchema', () => {
+  it('accepts the documented copied local environment without printing secrets', () => {
+    const repositoryRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../..',
+    );
+    const environment = Object.fromEntries(
+      fs
+        .readFileSync(path.join(repositoryRoot, '.env.example'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const separator = line.indexOf('=');
+          const value = line.slice(separator + 1);
+          return [
+            line.slice(0, separator),
+            /^(['"]).*\1$/.test(value) ? value.slice(1, -1) : value,
+          ];
+        }),
+    );
+
+    const parsed = configSchema.parse(environment);
+    expect(parsed.MONGODB_URI).toBe(
+      'mongodb://127.0.0.1:27018/easygenerator_auth?replicaSet=rs0&directConnection=true',
+    );
+    expect(parsed.REDIS_URL).toBe('redis://127.0.0.1:6380');
+    expect(Buffer.from(parsed.CSRF_SECRET, 'base64')).toHaveLength(32);
+    expect(Buffer.from(parsed.IDENTITY_HASH_SECRET, 'base64')).toHaveLength(32);
+
+    const sourced = spawnSync(
+      'zsh',
+      [
+        '-c',
+        '. "$1"; test "$MONGODB_URI" = "$2"; test "$REDIS_URL" = "$3"',
+        'environment-check',
+        path.join(repositoryRoot, '.env.example'),
+        parsed.MONGODB_URI,
+        parsed.REDIS_URL,
+      ],
+      { encoding: 'utf8', shell: false },
+    );
+    expect(sourced.status).toBe(0);
+    expect(sourced.stdout).toBe('');
+    expect(sourced.stderr).toBe('');
+  });
+
+  it('treats empty optional environment values as absent in development', () => {
+    const parsed = configSchema.parse({
+      NODE_ENV: 'development',
+      CSRF_SECRET: '',
+      IDENTITY_HASH_SECRET: '',
+      GEMINI_API_KEY: '',
+      GEMINI_MODEL: '',
+    });
+
+    expect(parsed.CSRF_SECRET).toBeDefined();
+    expect(parsed.IDENTITY_HASH_SECRET).toBeDefined();
+    expect(parsed.GEMINI_API_KEY).toBeUndefined();
+    expect(parsed.GEMINI_MODEL).toBeUndefined();
+  });
+
+  it('still treats empty required production values as missing', () => {
+    expect(() =>
+      configSchema.parse({ ...productionConfig, CSRF_SECRET: '' }),
+    ).toThrow(/CSRF_SECRET is required in production/);
+  });
+
   it('refuses production without secure secrets', () => {
     expect(() =>
       configSchema.parse({ NODE_ENV: 'production', PORT: '3000' }),

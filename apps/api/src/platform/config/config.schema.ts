@@ -75,6 +75,13 @@ const base64Secret = z
     'Secret must contain at least 32 bytes of valid base64-decoded data',
   );
 
+const optionalEnvironmentValue = <T extends z.ZodType>(schema: T) =>
+  z.preprocess(
+    (value) =>
+      typeof value === 'string' && value.trim() === '' ? undefined : value,
+    schema.optional(),
+  );
+
 const rawConfigSchema = z
   .object({
     NODE_ENV: z
@@ -84,8 +91,8 @@ const rawConfigSchema = z
     MONGODB_URI: uriWithProtocol(['mongodb:', 'mongodb+srv:']).optional(),
     DB_NAME: z.enum([defaults.DB_NAME, testDatabaseName]).optional(),
     REDIS_URL: uriWithProtocol(['redis:', 'rediss:']).optional(),
-    CSRF_SECRET: base64Secret.optional(),
-    IDENTITY_HASH_SECRET: base64Secret.optional(),
+    CSRF_SECRET: optionalEnvironmentValue(base64Secret),
+    IDENTITY_HASH_SECRET: optionalEnvironmentValue(base64Secret),
     TRUST_PROXY_HOPS: integerFromEnvironment(0, 10).optional(),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
@@ -96,8 +103,8 @@ const rawConfigSchema = z
     COOKIE_SECURE: booleanFromEnvironment.optional(),
     ASSISTANT_ENABLED: booleanFromEnvironment.optional(),
     SWAGGER_ENABLED: booleanFromEnvironment.optional(),
-    GEMINI_API_KEY: z.string().trim().min(1).optional(),
-    GEMINI_MODEL: z.string().trim().min(1).optional(),
+    GEMINI_API_KEY: optionalEnvironmentValue(z.string().trim().min(1)),
+    GEMINI_MODEL: optionalEnvironmentValue(z.string().trim().min(1)),
     ASSISTANT_CORPUS_PATH: z.literal('docs/assistant-public').optional(),
   })
   .passthrough()

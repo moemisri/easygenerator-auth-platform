@@ -7,12 +7,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 
-import { AuditService } from '../audit/audit.service';
-import { UsersService } from '../users/users.service';
-import { AppError } from '../../platform/errors/app-error';
-import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service';
-import { RateLimitExceededError } from '../../platform/redis/rate-limit-exceeded.error';
-import { RateLimiterService } from '../../platform/redis/rate-limiter.service';
+import { AuditService } from '../audit/audit.service.js';
+import { UsersService } from '../users/users.service.js';
+import { AppError } from '../../platform/errors/app-error.js';
+import { PrivacyKeyDigestService } from '../../platform/redis/privacy-key-digest.service.js';
+import { RateLimitExceededError } from '../../platform/redis/rate-limit-exceeded.error.js';
+import { RateLimiterService } from '../../platform/redis/rate-limiter.service.js';
 import {
   DUMMY_PASSWORD_HASH,
   SIGNIN_IDENTITY_LIMIT,
@@ -20,9 +20,9 @@ import {
   SIGNIN_WINDOW_SECONDS,
   SIGNUP_IP_LIMIT,
   SIGNUP_WINDOW_SECONDS,
-} from './auth.constants';
-import { PasswordService } from './password.service';
-import { SessionService } from './session.service';
+} from './auth.constants.js';
+import { PasswordService } from './password.service.js';
+import { SessionService } from './session.service.js';
 
 export interface AuthenticationRequestContext {
   ip: string;

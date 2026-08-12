@@ -4,36 +4,36 @@ import { fileURLToPath } from 'node:url';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
-import { AuditModule } from '../audit/audit.module';
-import { AuthModule } from '../auth/auth.module';
-import { IDENTITY_HASH_SECRET } from '../auth/auth.constants';
-import { LoggingModule } from '../../platform/logging/logging.module';
-import { RedisModule } from '../../platform/redis/redis.module';
-import { AssistantCacheService } from './assistant-cache.service';
+import { AuditModule } from '../audit/audit.module.js';
+import { AuthModule } from '../auth/auth.module.js';
+import { IDENTITY_HASH_SECRET } from '../auth/auth.constants.js';
+import { LoggingModule } from '../../platform/logging/logging.module.js';
+import { RedisModule } from '../../platform/redis/redis.module.js';
+import { AssistantCacheService } from './assistant-cache.service.js';
 import {
   ASSISTANT_LEASE_RANDOM_SOURCE,
   AssistantConcurrencyService,
   assistantLeaseRandomSource,
-} from './assistant-concurrency.service';
-import { AssistantController } from './assistant.controller';
-import { AssistantRateLimiterService } from './assistant-rate-limiter.service';
+} from './assistant-concurrency.service.js';
+import { AssistantController } from './assistant.controller.js';
+import { AssistantRateLimiterService } from './assistant-rate-limiter.service.js';
 import {
   ASSISTANT_DEADLINE_MILLISECONDS,
   AssistantService,
-} from './assistant.service';
-import { ASSISTANT_PROVIDER } from './assistant.types';
+} from './assistant.service.js';
+import { ASSISTANT_PROVIDER } from './assistant.types.js';
 import {
   ASSISTANT_CORPUS_FILE_SYSTEM,
   ASSISTANT_CORPUS_ROOT,
   assistantCorpusFileSystem,
   DocumentLoaderService,
-} from './document-loader.service';
+} from './document-loader.service.js';
 import {
   GeminiProvider,
   GOOGLE_GENAI_FACTORY,
   googleGenAiFactory,
-} from './gemini.provider';
-import { RetrieverService } from './retriever.service';
+} from './gemini.provider.js';
+import { RetrieverService } from './retriever.service.js';
 
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),

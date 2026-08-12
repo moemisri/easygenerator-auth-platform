@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import type { Options } from 'pino-http';
 
-import { requestPath } from '../http/request-path';
+import { requestPath } from '../http/request-path.js';
 
 export const redact = [
   'req.headers.authorization',

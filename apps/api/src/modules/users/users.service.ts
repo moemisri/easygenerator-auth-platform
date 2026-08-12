@@ -13,7 +13,7 @@ import {
   type StoredSafeUser,
   type StoredUser,
   UsersRepository,
-} from './users.repository';
+} from './users.repository.js';
 
 export interface CreateUserInput {
   email: string;

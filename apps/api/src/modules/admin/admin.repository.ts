@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { ClientSession, Model } from 'mongoose';
 
-import { SecurityState } from './schemas/security-state.schema';
+import { SecurityState } from './schemas/security-state.schema.js';
 
 @Injectable()
 export class AdminRepository {

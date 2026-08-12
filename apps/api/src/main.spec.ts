@@ -81,7 +81,7 @@ describe('initializeAndListen', () => {
     await startup;
 
     expect(order).toEqual(['app.init', 'indexes', 'app.listen']);
-    expect(app.listen).toHaveBeenCalledWith(3000);
+    expect(app.listen).toHaveBeenCalledWith(3000, '0.0.0.0');
   });
 
   it('does not create a listener when security index readiness fails', async () => {

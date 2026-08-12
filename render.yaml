@@ -1,0 +1,47 @@
+services:
+  - type: keyvalue
+    name: easygenerator-cache
+    plan: starter
+    region: frankfurt
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+    persistenceMode: off
+
+  - type: web
+    name: easygenerator-auth
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    branch: main
+    autoDeployTrigger: checksPass
+    healthCheckPath: /health/live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_NAME
+        value: easygenerator_auth
+      - key: COOKIE_SECURE
+        value: 'true'
+      - key: TRUST_PROXY_HOPS
+        value: '1'
+      - key: SWAGGER_ENABLED
+        value: 'true'
+      - key: ASSISTANT_ENABLED
+        value: 'true'
+      - key: LOG_LEVEL
+        value: info
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: easygenerator-cache
+          property: connectionString
+      - key: MONGODB_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: CSRF_SECRET
+        generateValue: true
+      - key: IDENTITY_HASH_SECRET
+        generateValue: true

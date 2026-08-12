@@ -3,8 +3,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   DATABASE_HEALTH,
   type DependencyHealthAdapter,
-} from '../../platform/database/database.module';
-import { REDIS } from '../../platform/redis/redis.constants';
+} from '../../platform/database/database.module.js';
+import { REDIS } from '../../platform/redis/redis.constants.js';
 
 const dependencyDeadlineMs = 1_000;
 

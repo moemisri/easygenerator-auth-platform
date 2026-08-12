@@ -1,6 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
-import type { Capability } from './authorization.policy';
+import type { Capability } from './authorization.policy.js';
 
 export const REQUIRED_CAPABILITY = Symbol('REQUIRED_CAPABILITY');
 

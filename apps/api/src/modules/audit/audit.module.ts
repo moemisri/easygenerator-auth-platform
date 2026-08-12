@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
-import { AuditEvent, AuditEventSchema } from './schemas/audit-event.schema';
-import { AuditService } from './audit.service';
+import { AuditEvent, AuditEventSchema } from './schemas/audit-event.schema.js';
+import { AuditService } from './audit.service.js';
 
 @Module({
   imports: [
