@@ -5,8 +5,12 @@ signin, opaque server-side sessions, four-role administration, audit summaries,
 Redis-backed protection, and an optional Gemini documentation assistant streamed
 over authenticated POST SSE.
 
-Live URL: not deployed yet. Publication and cloud provisioning are intentionally
-approval-gated after local review.
+Repository: [moemisri/easygenerator-auth-platform](https://github.com/moemisri/easygenerator-auth-platform)
+
+Live URL: Render provisioning is pending the account-owned Atlas URI and
+security-secret inputs.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fmoemisri%2Feasygenerator-auth-platform)
 
 ## Architecture
 
@@ -157,8 +161,9 @@ that exact filtered command works in Render's secure shell without source or
 4. Run the smoke script against the assigned HTTPS origin, then perform the
    one-time admin bootstrap and manual release checklist.
 
-No public repository or deployment has been created by the local-authoring
-phase.
+The public repository is available above. Render provisioning remains an
+account-holder operation because production credentials are entered only in
+Render's secure UI.
 
 ## Security and tradeoffs
 
