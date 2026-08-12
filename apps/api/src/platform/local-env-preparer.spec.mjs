@@ -74,7 +74,7 @@ describe('local environment preparer', () => {
         REDIS_URL: 'redis://127.0.0.1:6380',
       });
       const sourced = spawnSync(
-        'zsh',
+        'sh',
         [
           '-c',
           '. "$1"; test "$MONGODB_URI" = "$2"; test "$REDIS_URL" = "$3"',

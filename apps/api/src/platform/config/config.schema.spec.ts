@@ -53,7 +53,7 @@ describe('configSchema', () => {
     expect(Buffer.from(parsed.IDENTITY_HASH_SECRET, 'base64')).toHaveLength(32);
 
     const sourced = spawnSync(
-      'zsh',
+      'sh',
       [
         '-c',
         '. "$1"; test "$MONGODB_URI" = "$2"; test "$REDIS_URL" = "$3"',
