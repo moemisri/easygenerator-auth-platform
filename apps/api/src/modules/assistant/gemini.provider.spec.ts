@@ -95,6 +95,7 @@ describe('GeminiProvider', () => {
           maxOutputTokens: 800,
           systemInstruction: 'Static grounding instruction.',
           tools: [],
+          thinkingConfig: { thinkingBudget: 0 },
           abortSignal: abort.signal,
         },
       },

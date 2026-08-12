@@ -16,6 +16,7 @@ export interface GoogleStreamRequest {
     maxOutputTokens: number;
     systemInstruction: string;
     tools: [];
+    thinkingConfig: { thinkingBudget: number };
     abortSignal: AbortSignal;
   };
 }
@@ -98,6 +99,11 @@ export class GeminiProvider implements AssistantProvider {
             maxOutputTokens: input.maxOutputTokens,
             systemInstruction: input.system,
             tools: [],
+            // Gemini 2.5 models think by default and charge those tokens
+            // against maxOutputTokens. At this budget the model can spend the
+            // whole allowance thinking and stream back no text at all, which
+            // surfaces as an empty answer rather than an error.
+            thinkingConfig: { thinkingBudget: 0 },
             abortSignal: signal,
           },
         });
