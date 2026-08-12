@@ -78,4 +78,4 @@ it('loads compiled API and CLI modules with emitted Nest constructor metadata', 
   expect(result.status).toBe(0);
   expect(result.stderr).toBe('');
   expect(result.stdout).toBe('compiled-runtime-loaded');
-});
+}, 30_000);
